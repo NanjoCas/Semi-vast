@@ -1,0 +1,2 @@
+Sophia/checkpoints/**/*.pt filter=lfs diff=lfs merge=lfs -text
+Sophia/Data/Environment[[:space:]]News[[:space:]]Dataset/*.csv filter=lfs diff=lfs merge=lfs -text
