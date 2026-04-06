@@ -176,46 +176,68 @@ class DualChannelDetector(nn.Module):
         pseudo_weights: torch.Tensor,
         lambda_val: float,
         class_weights: Optional[torch.Tensor] = None,
+        loss_type: str = "ce",
+        focal_gamma: float = 2.0,
+        logit_adjust_tau: float = 0.0,
+        class_priors: Optional[torch.Tensor] = None,
     ) -> dict:
         """
         Compute the joint supervised + pseudo-labeled loss.
 
-        L = L_sup + lambda_val * sum_i(w_i * L_pseudo_i)
-
-        For pseudo loss, CrossEntropy is computed per-sample (reduction='none'),
-        then multiplied element-wise by pseudo_weights and averaged. This
-        ensures that low-confidence pseudo-labels contribute less to the gradient.
-
-        Args:
-            labeled_logits (Tensor): Shape (N_lab, num_labels) — from forward_reasoning.
-            labeled_labels (Tensor): Shape (N_lab,) — integer class indices.
-            pseudo_logits (Tensor): Shape (N_pse, num_labels) — from forward_content.
-            pseudo_labels (Tensor): Shape (N_pse,) — integer pseudo class indices.
-            pseudo_weights (Tensor): Shape (N_pse,) — per-sample confidence weights in [0,1].
-            lambda_val (float): Global weighting for the pseudo loss term.
-            class_weights (Tensor, optional): Shape (num_labels,) — inverse-frequency
-                weights passed to the supervised CrossEntropyLoss.
-
-        Returns:
-            dict with keys:
-                "total"      (Tensor): L_sup + lambda_val * L_pseudo  (scalar)
-                "supervised" (Tensor): L_sup                           (scalar)
-                "pseudo"     (Tensor): weighted pseudo loss            (scalar)
+        Supports:
+          - Standard CE (``loss_type='ce'``)
+          - Focal loss (``loss_type='focal'``)
+          - Optional logit adjustment using class priors
+            (``logits - tau * log(prior)``).
         """
-        # Supervised loss (with optional class-level balancing)
-        sup_criterion = nn.CrossEntropyLoss(weight=class_weights)
-        l_sup = sup_criterion(labeled_logits, labeled_labels)
+        # Numerical guards to avoid NaN/Inf propagation.
+        labeled_logits = torch.nan_to_num(labeled_logits, nan=0.0, posinf=30.0, neginf=-30.0)
+        pseudo_logits = torch.nan_to_num(pseudo_logits, nan=0.0, posinf=30.0, neginf=-30.0)
+        pseudo_weights = torch.nan_to_num(
+            pseudo_weights.float(), nan=1.0, posinf=1.0, neginf=0.0
+        ).clamp(0.0, 1.0)
 
-        # Pseudo loss: per-sample CE, then weighted mean
-        # reduction='none' returns shape (N_pse,)
-        pseudo_criterion = nn.CrossEntropyLoss(reduction="none")
-        per_sample_loss = pseudo_criterion(pseudo_logits, pseudo_labels)
+        # Optional logit adjustment to counter class imbalance at decision level.
+        if class_priors is not None and float(logit_adjust_tau) > 0.0:
+            priors = torch.nan_to_num(class_priors.float(), nan=0.0, posinf=0.0, neginf=0.0)
+            priors = priors / priors.sum().clamp(min=1e-8)
+            prior_log = torch.log(priors.clamp(min=1e-8)).to(labeled_logits.device)
+            labeled_logits = labeled_logits - float(logit_adjust_tau) * prior_log.unsqueeze(0)
+            pseudo_logits = pseudo_logits - float(logit_adjust_tau) * prior_log.unsqueeze(0)
 
-        # Normalise weights to sum to 1 to keep gradient scale stable
+        # Supervised loss
+        if loss_type.lower() == "focal":
+            ce_sup = F.cross_entropy(
+                labeled_logits,
+                labeled_labels,
+                weight=class_weights,
+                reduction="none",
+            )
+            pt_sup = torch.exp(-ce_sup)
+            l_sup = ((1.0 - pt_sup) ** float(focal_gamma) * ce_sup).mean()
+        else:
+            sup_criterion = nn.CrossEntropyLoss(weight=class_weights)
+            l_sup = sup_criterion(labeled_logits, labeled_labels)
+
+        # Pseudo loss (per-sample, then weighted mean)
+        ce_pseudo = F.cross_entropy(
+            pseudo_logits,
+            pseudo_labels,
+            reduction="none",
+        )
+        ce_pseudo = torch.nan_to_num(ce_pseudo, nan=0.0, posinf=100.0, neginf=100.0)
+
+        if loss_type.lower() == "focal":
+            pt_pseudo = torch.exp(-ce_pseudo)
+            per_sample_loss = ((1.0 - pt_pseudo) ** float(focal_gamma) * ce_pseudo)
+        else:
+            per_sample_loss = ce_pseudo
+
         weight_sum = pseudo_weights.sum().clamp(min=1e-8)
         l_pseudo = (pseudo_weights * per_sample_loss).sum() / weight_sum
 
         l_total = l_sup + lambda_val * l_pseudo
+        l_total = torch.nan_to_num(l_total, nan=0.0, posinf=100.0, neginf=100.0)
 
         return {
             "total": l_total,
@@ -585,3 +607,33 @@ def compute_class_weights(train_jsonl_path: str) -> torch.Tensor:
             weights.append(1.0)
 
     return torch.tensor(weights, dtype=torch.float)
+
+
+def compute_class_priors(train_jsonl_path: str, smoothing: float = 1e-3) -> torch.Tensor:
+    """
+    Compute class prior probabilities from labeled train data.
+
+    Returns a probability tensor of shape (3,) ordered as
+    [SUPPORTS, REFUTES, NOT_ENOUGH_INFO].
+    """
+    num_classes = len(LABEL2ID)
+    counts = [0.0] * num_classes
+
+    with open(train_jsonl_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            label_str = record.get("label", "NOT_ENOUGH_INFO")
+            label_id = LABEL2ID.get(label_str, LABEL2ID["NOT_ENOUGH_INFO"])
+            counts[label_id] += 1.0
+
+    total = sum(counts)
+    if total <= 0:
+        raise ValueError(f"No records found in {train_jsonl_path}")
+
+    counts_t = torch.tensor(counts, dtype=torch.float)
+    priors = (counts_t + float(smoothing))
+    priors = priors / priors.sum().clamp(min=1e-8)
+    return priors

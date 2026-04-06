@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from tqdm import tqdm
 
 
 # ---------------------------------------------------------------------------
@@ -324,32 +325,27 @@ class PPOSelector:
         selected: list,
         baseline_f1: float,
         val_f1_fn: Callable[[list], float],
-    ) -> float:
+    ) -> tuple[float, float]:
         """
-        Compute the episode reward.
+        Compute episode reward and return the new F1 used in the reward.
 
         R = alpha * delta_F1 + beta * mean(|LogicScore|_selected)
 
-        Args:
-            selected    : list of sample dicts that were kept this episode
-            baseline_f1 : F1 on the validation set before this episode's
-                          selection was applied
-            val_f1_fn   : callable(selected) -> float F1
-
         Returns:
-            scalar reward (float)
+            (reward, new_f1)
         """
         if not selected:
-            # No samples kept: penalise with zero improvement and zero quality
-            return 0.0
+            # No samples kept: keep baseline unchanged.
+            return 0.0, baseline_f1
 
-        new_f1    = val_f1_fn(selected)
-        delta_f1  = new_f1 - baseline_f1
+        new_f1 = val_f1_fn(selected)
+        delta_f1 = new_f1 - baseline_f1
 
         logic_scores = [abs(float(s.get("logic_score", 0.0))) for s in selected]
-        mean_logic   = float(np.mean(logic_scores))
+        mean_logic = float(np.mean(logic_scores))
 
-        return self.alpha * delta_f1 + self.beta * mean_logic
+        reward = self.alpha * delta_f1 + self.beta * mean_logic
+        return reward, new_f1
 
     # ------------------------------------------------------------------
     # PPO update
@@ -429,6 +425,7 @@ class PPOSelector:
         pseudo_labeled_pool: list,
         val_f1_fn: Callable[[list], float],
         n_steps: int = 512,
+        show_progress: bool = True,
     ) -> list:
         """
         Run the PPO selection process over the full pseudo-labeled pool.
@@ -466,7 +463,11 @@ class PPOSelector:
         # We store the keep-decisions from the last pass for the final return
         final_kept: list = []
 
-        for ep_idx in range(n_episodes):
+        ep_iter = range(n_episodes)
+        if show_progress:
+            ep_iter = tqdm(ep_iter, desc="PPO episodes", unit="ep", dynamic_ncols=True)
+
+        for ep_idx in ep_iter:
             ep_start = episode_boundaries[ep_idx]
             ep_end   = episode_boundaries[ep_idx + 1]
             episode_pool = pseudo_labeled_pool[ep_start:ep_end]
@@ -475,6 +476,8 @@ class PPOSelector:
 
             selected_this_episode: list = []
             selected_embeddings:   list = []
+            episode_new_f1 = baseline_f1
+            episode_reward = 0.0
 
             # ---- rollout ------------------------------------------------
             for step_idx, sample in enumerate(episode_pool):
@@ -513,9 +516,10 @@ class PPOSelector:
                 done   = is_last_step
 
                 if done:
-                    reward = self._compute_reward(
+                    reward, episode_new_f1 = self._compute_reward(
                         selected_this_episode, baseline_f1, val_f1_fn
                     )
+                    episode_reward = reward
 
                 self.buffer.add(state, action, reward, log_prob, value, done)
 
@@ -527,9 +531,15 @@ class PPOSelector:
             )
             self._ppo_update(self.buffer)
 
-            # Update baseline with best available estimate after this episode
-            if selected_this_episode:
-                baseline_f1 = val_f1_fn(selected_this_episode)
+            # Reuse the episode F1 already computed inside reward.
+            baseline_f1 = episode_new_f1
+
+            if show_progress and hasattr(ep_iter, "set_postfix"):
+                ep_iter.set_postfix(
+                    selected=len(selected_this_episode),
+                    reward=f"{episode_reward:.4f}",
+                    f1=f"{baseline_f1:.4f}",
+                )
 
             # Keep the selections from the last episode as the final output
             # For full-pool selection we accumulate across all episodes
@@ -542,6 +552,8 @@ class PPOSelector:
                 "claim":        s["claim"],
                 "pseudo_label": s["pseudo_label"],
                 "weight":       s["weight"],
+                "logic_score":  s.get("logic_score", 0.0),
+                "confidence":   s.get("confidence", 0.5),
             }
             for s in final_kept
         ]

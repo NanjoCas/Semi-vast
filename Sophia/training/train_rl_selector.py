@@ -35,6 +35,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
+from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
 # Project-root imports
@@ -50,10 +51,14 @@ from models.extractor import TextualFeatureExtractor    # noqa: E402
 # ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format="%(asctime)s [%(levelname)s] %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
 )
 log = logging.getLogger("train_rl_selector")
+
+# Keep terminal output focused: suppress chatty third-party logs.
+for noisy_name in ("httpx", "urllib3", "transformers", "huggingface_hub"):
+    logging.getLogger(noisy_name).setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # Label mapping (kept local to avoid circular imports at top level)
@@ -122,7 +127,13 @@ def _extract_cls_embeddings(
     log.info("%s (%d samples, batch_size=%d) …", desc, total, batch_size)
     t0 = time.time()
 
-    for start in range(0, total, batch_size):
+    for start in tqdm(
+        range(0, total, batch_size),
+        desc=desc,
+        unit="batch",
+        leave=False,
+        dynamic_ncols=True,
+    ):
         batch_records = records[start : start + batch_size]
 
         texts_a: list[str] = []
@@ -168,9 +179,6 @@ def _extract_cls_embeddings(
 
         all_embeddings.append(cls_vecs.cpu().float().numpy())
 
-        if (start // batch_size + 1) % 10 == 0:
-            pct = min(start + batch_size, total) / total * 100
-            log.info("  %.1f%% (%d/%d)", pct, min(start + batch_size, total), total)
 
     elapsed = time.time() - t0
     log.info("  Done in %.1fs", elapsed)
@@ -184,6 +192,7 @@ def _extract_cls_embeddings(
 def build_val_f1_fn(
     labeled_train_records: list[dict],
     val_records: list[dict],
+    pseudo_pool_records: list[dict],
     extractor: TextualFeatureExtractor,
     tokenizer,
     device: torch.device,
@@ -193,17 +202,22 @@ def build_val_f1_fn(
     amp_dtype: torch.dtype = torch.bfloat16,
 ) -> Callable[[list[dict]], float]:
     """
-    Build and return a val_f1_fn callable with cached labeled-train embeddings.
+    Build and return a val_f1_fn callable with cached embeddings.
 
-    The returned function:
-        1. Concatenates labeled-train CLS embeddings with embeddings of the
-           provided pseudo-labeled selection.
-        2. Trains a LogisticRegression probe on the combined embeddings.
-        3. Evaluates on the val set and returns macro-F1.
+    Caches are built once for:
+      1) labeled train records
+      2) labeled val records
+      3) the entire pseudo-labeled pool
 
-    Labeled-train embeddings are computed once and cached in the closure to
-    avoid repeated DeBERTa forward passes.
+    This avoids repeated DeBERTa forward passes during PPO episodes.
     """
+
+    def _record_key(rec: dict) -> str:
+        rec_id = rec.get("id")
+        if rec_id is not None:
+            return f"id::{rec_id}"
+        return f"claim::{rec.get('claim', '')}"
+
     # -- Extract and cache labeled val embeddings --
     log.info("Pre-computing val embeddings …")
     val_embeddings = _extract_cls_embeddings(
@@ -240,36 +254,74 @@ def build_val_f1_fn(
         dtype=np.int64,
     )
 
+    # -- Extract and cache pseudo-pool embeddings --
+    log.info("Pre-computing pseudo-pool embeddings (cached) …")
+    unique_pseudo_records: list[dict] = []
+    seen_keys: set[str] = set()
+    for rec in pseudo_pool_records:
+        key = _record_key(rec)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique_pseudo_records.append(rec)
+
+    pseudo_emb_by_key: dict[str, np.ndarray] = {}
+    if unique_pseudo_records:
+        pseudo_pool_embeddings = _extract_cls_embeddings(
+            unique_pseudo_records,
+            extractor,
+            tokenizer,
+            device,
+            max_length=max_length,
+            batch_size=batch_size,
+            desc="Pseudo pool embeddings",
+            use_amp=use_amp,
+            amp_dtype=amp_dtype,
+        )
+        for rec, emb in zip(unique_pseudo_records, pseudo_pool_embeddings):
+            pseudo_emb_by_key[_record_key(rec)] = emb
+
     log.info(
-        "Embedding cache ready: train=%d, val=%d",
+        "Embedding cache ready: train=%d, val=%d, pseudo=%d",
         len(train_labels),
         len(val_labels),
+        len(pseudo_emb_by_key),
     )
 
     def val_f1_fn(selected_pseudo: list[dict]) -> float:
         """
         Compute macro-F1 on the val set using a LogisticRegression probe.
-
-        Args:
-            selected_pseudo: list of pseudo-labeled sample dicts.
-                Each dict must have a "claim" key and a "pseudo_label" key
-                (int: 0/1/2) or a "label" key (str).
-
-        Returns:
-            float: macro-F1 score in [0, 1].
         """
         if selected_pseudo:
-            pseudo_embeddings = _extract_cls_embeddings(
-                selected_pseudo,
-                extractor,
-                tokenizer,
-                device,
-                max_length=max_length,
-                batch_size=batch_size,
-                desc="  Pseudo embeddings for probe",
-                use_amp=use_amp,
-                amp_dtype=amp_dtype,
-            )
+            # Fill cache misses only once, then use ordered lookup.
+            missing_map: dict[str, dict] = {}
+            for rec in selected_pseudo:
+                key = _record_key(rec)
+                if key not in pseudo_emb_by_key:
+                    missing_map[key] = rec
+
+            if missing_map:
+                missing_records = list(missing_map.values())
+                log.warning(
+                    "Pseudo embedding cache miss: %d records. Computing on-the-fly.",
+                    len(missing_records),
+                )
+                missing_embeddings = _extract_cls_embeddings(
+                    missing_records,
+                    extractor,
+                    tokenizer,
+                    device,
+                    max_length=max_length,
+                    batch_size=batch_size,
+                    desc="  Missing pseudo embeddings",
+                    use_amp=use_amp,
+                    amp_dtype=amp_dtype,
+                )
+                for rec, emb in zip(missing_records, missing_embeddings):
+                    pseudo_emb_by_key[_record_key(rec)] = emb
+
+            ordered_embs = [pseudo_emb_by_key[_record_key(rec)] for rec in selected_pseudo]
+            pseudo_embeddings = np.stack(ordered_embs, axis=0)
 
             # Normalise pseudo label: accept int pseudo_label or str label
             pseudo_labels_list: list[int] = []
@@ -290,7 +342,7 @@ def build_val_f1_fn(
             X_train = train_embeddings
             y_train = train_labels
 
-        clf = LogisticRegression(max_iter=200, n_jobs=-1)
+        clf = LogisticRegression(max_iter=200)
         clf.fit(X_train, y_train)
 
         preds = clf.predict(val_embeddings)
@@ -514,6 +566,10 @@ def main() -> None:
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    print("\n" + "=" * 72)
+    print("[Stage] Loading data")
+    print("=" * 72)
+
     # ------------------------------------------------------------------
     # Load data
     # ------------------------------------------------------------------
@@ -556,6 +612,10 @@ def main() -> None:
     for param in extractor.parameters():
         param.requires_grad_(False)
 
+    print("\n" + "=" * 72)
+    print("[Stage] Building embedding cache for probe")
+    print("=" * 72)
+
     # ------------------------------------------------------------------
     # Build val_f1_fn
     # ------------------------------------------------------------------
@@ -563,6 +623,7 @@ def main() -> None:
     val_f1_fn = build_val_f1_fn(
         labeled_train_records=labeled_train,
         val_records=labeled_dev,
+        pseudo_pool_records=pseudo_pool,
         extractor=extractor,
         tokenizer=tokenizer,
         device=device,
@@ -588,15 +649,21 @@ def main() -> None:
         clip_epsilon=clip_epsilon,
         gamma=gamma,
         gae_lambda=gae_lambda,
-        n_steps=n_steps,
-        device=device,
     )
+
+    print("\n" + "=" * 72)
+    print("[Stage] PPO selection")
+    print("=" * 72)
 
     # ------------------------------------------------------------------
     # Run selection
     # ------------------------------------------------------------------
     log.info("Running PPO-based sample selection on %d candidates …", len(pseudo_pool))
-    selected_samples: list[dict] = selector.select(pseudo_pool, val_f1_fn)
+    selected_samples: list[dict] = selector.select(
+        pseudo_pool,
+        val_f1_fn,
+        n_steps=n_steps,
+    )
     log.info("Selection complete: %d / %d samples retained.", len(selected_samples), len(pseudo_pool))
 
     # ------------------------------------------------------------------

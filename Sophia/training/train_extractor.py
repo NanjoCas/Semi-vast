@@ -29,7 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 import transformers
@@ -60,7 +60,20 @@ def set_seeds(seed: int = 42) -> None:
 def resolve_device(cli_device: str | None) -> torch.device:
     """Return the best available device, respecting an optional CLI override."""
     if cli_device:
-        return torch.device(cli_device)
+        device = torch.device(cli_device)
+        if device.type == "cuda" and not torch.cuda.is_available():
+            print(
+                "[train_extractor] WARNING: requested device cuda is unavailable; "
+                "falling back to cpu."
+            )
+            return torch.device("cpu")
+        if device.type == "mps" and not torch.backends.mps.is_available():
+            print(
+                "[train_extractor] WARNING: requested device mps is unavailable; "
+                "falling back to cpu."
+            )
+            return torch.device("cpu")
+        return device
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -105,6 +118,46 @@ def compute_class_weights(
     if device is not None:
         weight_tensor = weight_tensor.to(device)
     return weight_tensor
+
+
+def extract_label_ids(
+    dataset: ClaimEvidenceDataset,
+    num_classes: int = 3,
+) -> list[int]:
+    """
+    Convert dataset labels into integer ids in [0, num_classes).
+    Unknown labels are mapped to NOT_ENOUGH_INFO (2).
+    """
+    label_str_to_id = {"SUPPORTS": 0, "REFUTES": 1, "NOT_ENOUGH_INFO": 2}
+    label_ids = [
+        label_str_to_id.get(rec.get("label", "NOT_ENOUGH_INFO"), 2)
+        for rec in dataset.records
+    ]
+    return [min(max(int(x), 0), num_classes - 1) for x in label_ids]
+
+
+def build_balanced_sampler(
+    label_ids: list[int],
+    num_classes: int = 3,
+    power: float = 1.0,
+) -> WeightedRandomSampler:
+    """
+    Build a WeightedRandomSampler to mitigate class imbalance.
+
+    Per-sample weight:
+        w_i = (1 / count[y_i]) ** power
+    """
+    counts = Counter(label_ids)
+    sample_weights: list[float] = []
+    for y in label_ids:
+        cls_count = max(int(counts.get(int(y), 1)), 1)
+        sample_weights.append((1.0 / cls_count) ** float(power))
+    weights_tensor = torch.tensor(sample_weights, dtype=torch.double)
+    return WeightedRandomSampler(
+        weights=weights_tensor,
+        num_samples=len(label_ids),
+        replacement=True,
+    )
 
 
 def evaluate(
@@ -192,6 +245,21 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Optional device override (e.g. 'cuda', 'cpu', 'mps').",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=None,
+        help="Optional batch size override for training.",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=None,
+        help=(
+            "Optional early stopping patience in epochs. "
+            "If provided, training stops after this many epochs with no validation macro-F1 improvement."
+        ),
     )
     return parser.parse_args()
 
@@ -306,6 +374,7 @@ def main() -> None:
     training_cfg = config["training"]
     paths_cfg = config["paths"]
     models_cfg = config["models"]
+    imbalance_cfg = config.get("imbalance", {})
 
     # Resolve output directory (CLI arg takes priority over config)
     outputs_dir = Path(args.output_dir) if args.output_dir else PROJECT_ROOT / paths_cfg["outputs"]
@@ -338,6 +407,8 @@ def main() -> None:
     # ── Datasets ───────────────────────────────────────────────────────────
     max_length: int = training_cfg.get("max_length", 512)
     batch_size: int = training_cfg.get("batch_size", 16)
+    if args.batch_size is not None:
+        batch_size = args.batch_size
 
     train_path = PROJECT_ROOT / paths_cfg["labeled_train"]
     dev_path = PROJECT_ROOT / paths_cfg["labeled_dev"]
@@ -363,12 +434,40 @@ def main() -> None:
         str(dev_path), tokenizer, max_length=max_length
     )
 
+    train_label_ids = extract_label_ids(train_dataset, num_classes=3)
+    train_counts = Counter(train_label_ids)
+    print(
+        "[train_extractor] Train label distribution: "
+        f"SUPPORTS={train_counts.get(0, 0)}, "
+        f"REFUTES={train_counts.get(1, 0)}, "
+        f"NOT_ENOUGH_INFO={train_counts.get(2, 0)}"
+    )
+
     # ── DataLoaders ─────────────────────────────────────────────────────────
     num_workers = int(training_cfg.get("num_workers", min(4, os.cpu_count() or 1)))
+    use_balanced_extractor_sampler = bool(
+        imbalance_cfg.get("use_balanced_extractor_sampler", False)
+    )
+    extractor_sampler_power = float(imbalance_cfg.get("extractor_sampler_power", 1.0))
+    train_sampler = None
+    train_shuffle = True
+    if use_balanced_extractor_sampler:
+        train_sampler = build_balanced_sampler(
+            train_label_ids,
+            num_classes=3,
+            power=extractor_sampler_power,
+        )
+        train_shuffle = False
+        print(
+            "[train_extractor] Balanced sampler enabled for extractor training "
+            f"(power={extractor_sampler_power:.2f})."
+        )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=train_shuffle,
+        sampler=train_sampler,
         num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
     )
@@ -409,7 +508,11 @@ def main() -> None:
     max_epochs: int = training_cfg.get("max_epochs", 10)
     gradient_accumulation: int = training_cfg.get("gradient_accumulation", 4)
     warmup_steps: int = training_cfg.get("warmup_steps", 200)
+    early_stopping_patience: int | None = training_cfg.get("early_stopping_patience", None)
     max_grad_norm: float = 1.0
+
+    if args.patience is not None:
+        early_stopping_patience = args.patience
 
     total_update_steps = (len(train_loader) // gradient_accumulation) * max_epochs
     scheduler = get_linear_schedule_with_warmup(
@@ -420,13 +523,17 @@ def main() -> None:
 
     # ── Training loop ───────────────────────────────────────────────────────
     best_macro_f1: float = -1.0
+    epochs_since_improvement: int = 0
     best_checkpoint_path = checkpoints_dir / "best_model.pt"
     all_metrics: list[dict] = []
 
+    patience_desc = (
+        f"early_stopping_patience={early_stopping_patience}" if early_stopping_patience is not None else "early_stopping disabled"
+    )
     print(
         f"\n[train_extractor] Starting training — "
         f"epochs={max_epochs}, batch_size={batch_size}, "
-        f"grad_accum={gradient_accumulation}, warmup_steps={warmup_steps}\n"
+        f"grad_accum={gradient_accumulation}, warmup_steps={warmup_steps}, {patience_desc}\n"
     )
 
     for epoch in range(1, max_epochs + 1):
@@ -519,11 +626,23 @@ def main() -> None:
         # ── Save best checkpoint ───────────────────────────────────────────
         if val_metrics["macro_f1"] > best_macro_f1:
             best_macro_f1 = val_metrics["macro_f1"]
+            epochs_since_improvement = 0
             torch.save(model.state_dict(), best_checkpoint_path)
             print(
                 f"  [Epoch {epoch:02d}] New best macro-F1={best_macro_f1:.4f} "
                 f"— checkpoint saved to {best_checkpoint_path}"
             )
+        else:
+            epochs_since_improvement += 1
+            print(
+                f"  [Epoch {epoch:02d}] No improvement. "
+                f"epochs_since_improvement={epochs_since_improvement}"
+            )
+            if early_stopping_patience is not None and epochs_since_improvement >= early_stopping_patience:
+                print(
+                    f"  [train_extractor] Early stopping triggered after {epochs_since_improvement} epochs without improvement."
+                )
+                break
 
     # ── Save final model ────────────────────────────────────────────────────
     final_checkpoint_path = checkpoints_dir / "final_model.pt"

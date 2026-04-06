@@ -1,0 +1,53 @@
+{
+  "checkpoint": "/workspace/Semi-vast/Sophia/checkpoints/extractor/best_model.pt",
+  "unlabeled_pool": "/workspace/Semi-vast/Sophia/processed/unlabeled/unlabeled_pool.jsonl",
+  "weight_threshold": 0.4,
+  "score_weights": {
+    "beta1": 0.5,
+    "beta2": 0.3,
+    "beta3": 0.2
+  },
+  "total_samples": 30052,
+  "filtered_samples": 29808,
+  "retention_rate": 0.9919,
+  "full_pool": {
+    "label_distribution": {
+      "SUPPORTS": {
+        "count": 20593,
+        "fraction": 0.6852
+      },
+      "REFUTES": {
+        "count": 7908,
+        "fraction": 0.2631
+      },
+      "NOT_ENOUGH_INFO": {
+        "count": 1551,
+        "fraction": 0.0516
+      }
+    },
+    "avg_confidence": 0.9676,
+    "avg_logic_score": 0.5742,
+    "avg_weight": 0.7399,
+    "avg_entropy": 0.081
+  },
+  "filtered_pool": {
+    "label_distribution": {
+      "SUPPORTS": {
+        "count": 20531,
+        "fraction": 0.6888
+      },
+      "REFUTES": {
+        "count": 7789,
+        "fraction": 0.2613
+      },
+      "NOT_ENOUGH_INFO": {
+        "count": 1488,
+        "fraction": 0.0499
+      }
+    },
+    "avg_confidence": 0.9705,
+    "avg_logic_score": 0.5787,
+    "avg_weight": 0.7432,
+    "avg_entropy": 0.0758
+  }
+}

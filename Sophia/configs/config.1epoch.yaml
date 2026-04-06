@@ -1,0 +1,61 @@
+models:
+  deberta_base: /workspace/Semi-vast/Sophia/.hf_models/deberta-v3-base
+  nli_model: cross-encoder/nli-deberta-v3-large
+paths:
+  labeled_train: processed/labeled/train.jsonl
+  labeled_dev: processed/labeled/dev.jsonl
+  labeled_test: processed/labeled/test.jsonl
+  unlabeled_pool: processed/unlabeled/unlabeled_pool.jsonl
+  pseudo_labels: processed/pseudo_labels/pseudo_labeled_filtered.jsonl
+  checkpoints: checkpoints/
+  outputs: outputs/
+hyperparameters:
+  lambda_init: 0.1
+  lambda: 0.3
+  beta1: 0.5
+  beta2: 0.3
+  beta3: 0.2
+  alpha: 0.7
+  beta: 0.3
+  epsilon: 0.2
+training:
+  batch_size: 32
+  learning_rate: 1.5e-05
+  max_epochs: 1
+  warmup_steps: 600
+  gradient_accumulation: 2
+  max_length: 384
+  seed: 42
+  num_workers: 4
+  use_bf16: true
+  use_tf32: true
+rl:
+  state_dim: 4
+  action_dim: 2
+  ppo_lr: 0.0002
+  ppo_epochs: 8
+  clip_epsilon: 0.2
+  gamma: 0.99
+  gae_lambda: 0.95
+  n_steps: 2048
+  probe_epochs: 10
+evaluation:
+  metrics:
+  - accuracy
+  - f1_macro
+  - precision
+  - recall
+  - auc
+  logic_consistency: true
+
+imbalance:
+  use_balanced_pseudo_sampler: true
+  pseudo_sampler_power: 1.0
+  use_balanced_extractor_sampler: true
+  extractor_sampler_power: 1.0
+  apply_prior_adjust_in_pseudolabels: true
+
+algorithm:
+  loss_type: "focal"
+  focal_gamma: 2.0
+  logit_adjust_tau: 0.5

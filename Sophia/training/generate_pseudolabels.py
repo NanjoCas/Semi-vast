@@ -113,6 +113,33 @@ def print_statistics(results: list[dict], title: str = "Statistics") -> None:
     print(f"  avg_entropy     : {avg_entropy:.4f}")
 
 
+def compute_labeled_class_priors(
+    labeled_train_path: Path,
+    num_classes: int = 3,
+    smoothing: float = 1e-3,
+) -> list[float]:
+    """Estimate class priors from labeled train.jsonl with additive smoothing."""
+    id_map = {"SUPPORTS": 0, "REFUTES": 1, "NOT_ENOUGH_INFO": 2}
+    counts = [0.0] * num_classes
+
+    with open(labeled_train_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            raw = rec.get("label", "NOT_ENOUGH_INFO")
+            if isinstance(raw, int):
+                y = min(max(int(raw), 0), num_classes - 1)
+            else:
+                y = id_map.get(str(raw), 2)
+            counts[y] += 1.0
+
+    counts = [c + float(smoothing) for c in counts]
+    total = sum(counts)
+    return [c / total for c in counts]
+
+
 def save_jsonl(records: list[dict], path: Path) -> None:
     """Write a list of dicts to a .jsonl file (one JSON object per line)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +277,8 @@ def main() -> None:
     paths_cfg = config["paths"]
     models_cfg = config["models"]
     hp_cfg = config.get("hyperparameters", {})
+    imbalance_cfg = config.get("imbalance", {})
+    algorithm_cfg = config.get("algorithm", {})
 
     # ── Resolve paths ───────────────────────────────────────────────────────
     checkpoint_path = (
@@ -321,6 +350,24 @@ def main() -> None:
     )
     print(f"[generate_pseudolabels] Pool size: {len(unlabeled_dataset)} samples")
 
+    # ── Optional prior-adjusted pseudo labeling for imbalance ───────────────
+    apply_prior_adjust = bool(
+        imbalance_cfg.get("apply_prior_adjust_in_pseudolabels", True)
+    )
+    logit_adjust_tau = float(algorithm_cfg.get("logit_adjust_tau", 0.0))
+    class_priors: list[float] | None = None
+    if apply_prior_adjust and logit_adjust_tau > 0.0:
+        labeled_train_path = PROJECT_ROOT / paths_cfg["labeled_train"]
+        if not labeled_train_path.exists():
+            raise FileNotFoundError(f"Labeled train data not found: {labeled_train_path}")
+        class_priors = compute_labeled_class_priors(labeled_train_path)
+        print(
+            "[generate_pseudolabels] Prior-adjusted pseudo labeling enabled: "
+            f"tau={logit_adjust_tau:.3f}, priors={class_priors}"
+        )
+    else:
+        print("[generate_pseudolabels] Prior-adjusted pseudo labeling disabled.")
+
     # ── Composite weights from config ────────────────────────────────────────
     beta1: float = float(hp_cfg.get("beta1", 0.5))
     beta2: float = float(hp_cfg.get("beta2", 0.3))
@@ -341,6 +388,8 @@ def main() -> None:
         beta1=beta1,
         beta2=beta2,
         beta3=beta3,
+        class_priors=class_priors,
+        logit_adjust_tau=logit_adjust_tau,
     )
 
     # Attach human-readable label strings for convenience
@@ -383,6 +432,11 @@ def main() -> None:
         "unlabeled_pool": str(unlabeled_pool_path),
         "weight_threshold": weight_threshold,
         "score_weights": {"beta1": beta1, "beta2": beta2, "beta3": beta3},
+        "prior_adjustment": {
+            "enabled": bool(class_priors is not None and logit_adjust_tau > 0.0),
+            "logit_adjust_tau": logit_adjust_tau,
+            "class_priors": class_priors,
+        },
         "total_samples": len(results),
         "filtered_samples": len(filtered_results),
         "retention_rate": round(retention_rate, 4),

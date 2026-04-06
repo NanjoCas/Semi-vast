@@ -35,8 +35,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from torch.optim import AdamW
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
+from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
 # Project-root imports
@@ -44,17 +45,21 @@ from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from run_pipeline import ClaimEvidenceDataset                   # noqa: E402
-from models.detector import DualChannelDetector                 # noqa: E402
+from models.detector import DualChannelDetector, compute_class_weights, compute_class_priors  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format="%(asctime)s [%(levelname)s] %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
 )
 log = logging.getLogger("train_detector")
+
+# Keep output readable during long runs.
+for noisy_name in ("httpx", "urllib3", "transformers", "huggingface_hub"):
+    logging.getLogger(noisy_name).setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # Label mapping
@@ -106,6 +111,18 @@ class PseudoClaimDataset(Dataset):
                 if line:
                     self.records.append(json.loads(line))
 
+        # Cache resolved pseudo labels once for sampling diagnostics/samplers.
+        self.label_ids: list[int] = []
+        for rec in self.records:
+            raw_label = rec.get("pseudo_label")
+            if isinstance(raw_label, int) and 0 <= raw_label < NUM_LABELS:
+                label_id = int(raw_label)
+            elif isinstance(raw_label, str):
+                label_id = LABEL2ID.get(raw_label, 2)
+            else:
+                label_id = LABEL2ID.get(rec.get("label", "NOT_ENOUGH_INFO"), 2)
+            self.label_ids.append(label_id)
+
         log.info(
             "PseudoClaimDataset: loaded %d records from %s",
             len(self.records),
@@ -136,6 +153,8 @@ class PseudoClaimDataset(Dataset):
             return_tensors="pt",
         )
 
+        weight = float(rec.get("weight", 1.0))
+
         return {
             "input_ids": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
@@ -144,6 +163,7 @@ class PseudoClaimDataset(Dataset):
                 torch.zeros(self.max_length, dtype=torch.long),
             ).squeeze(0),
             "label": torch.tensor(label_id, dtype=torch.long),
+            "weight": torch.tensor(weight, dtype=torch.float),
             "id": rec.get("id", ""),
         }
 
@@ -177,6 +197,46 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def _label_name(label_id: int) -> str:
+    return {0: "SUPPORTS", 1: "REFUTES", 2: "NOT_ENOUGH_INFO"}.get(int(label_id), str(label_id))
+
+
+def _summarize_label_distribution(label_ids: list[int], name: str) -> dict[int, int]:
+    counts = {0: 0, 1: 0, 2: 0}
+    for lid in label_ids:
+        if int(lid) in counts:
+            counts[int(lid)] += 1
+    total = sum(counts.values())
+    parts = []
+    for lid in (0, 1, 2):
+        cnt = counts[lid]
+        pct = (100.0 * cnt / total) if total else 0.0
+        parts.append(f"{_label_name(lid)}={cnt} ({pct:.1f}%)")
+    max_cnt = max(counts.values()) if total else 0
+    min_nonzero = min([c for c in counts.values() if c > 0], default=0)
+    ratio = (max_cnt / min_nonzero) if min_nonzero > 0 else float('inf')
+    log.info("%s distribution | %s | imbalance_ratio(max/min_nonzero)=%.2f", name, ", ".join(parts), ratio)
+    return counts
+
+
+def _build_balanced_sampler_from_labels(label_ids: list[int], power: float = 1.0) -> WeightedRandomSampler:
+    counts = {0: 0, 1: 0, 2: 0}
+    for lid in label_ids:
+        counts[int(lid)] = counts.get(int(lid), 0) + 1
+
+    per_class = {}
+    for lid, cnt in counts.items():
+        per_class[lid] = 0.0 if cnt <= 0 else 1.0 / (float(cnt) ** float(power))
+
+    sample_weights = torch.tensor([per_class[int(lid)] for lid in label_ids], dtype=torch.double)
+    sampler = WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(label_ids),
+        replacement=True,
+    )
+    return sampler
+
+
 # ============================================================================
 # Evaluation
 # ============================================================================
@@ -200,7 +260,15 @@ def evaluate(
     all_logits: list[torch.Tensor] = []
     all_labels: list[torch.Tensor] = []
 
-    for batch in loader:
+    eval_iter = tqdm(
+        loader,
+        desc=f"{split_name}",
+        unit="batch",
+        leave=False,
+        dynamic_ncols=True,
+    )
+
+    for batch in eval_iter:
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         token_type_ids = batch.get("token_type_ids")
@@ -213,7 +281,7 @@ def evaluate(
             enabled=(use_amp and device.type == "cuda"),
             dtype=amp_dtype,
         ):
-            logits = detector.reasoning_forward(
+            logits = detector.forward_reasoning(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 token_type_ids=token_type_ids,
@@ -225,7 +293,7 @@ def evaluate(
     logits_cat = torch.cat(all_logits, dim=0)       # (N, C)
     labels_cat = torch.cat(all_labels, dim=0)       # (N,)
 
-    probs = torch.softmax(logits_cat, dim=-1).numpy()
+    probs = torch.softmax(logits_cat.float(), dim=-1).numpy()
     preds = logits_cat.argmax(dim=-1).numpy()
     true = labels_cat.numpy()
 
@@ -261,6 +329,8 @@ def train(
     cfg: dict,
     device: torch.device,
     project_root: Path,
+    labeled_class_weights: torch.Tensor | None = None,
+    labeled_class_priors: torch.Tensor | None = None,
 ) -> list[dict]:
     """
     Joint training loop with 1:3 labeled-to-pseudo batch ratio.
@@ -280,6 +350,28 @@ def train(
     use_amp = bool(use_bf16 or use_fp16)
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
     scaler = torch.amp.GradScaler(device="cuda", enabled=(device.type == "cuda" and use_fp16))
+
+    algo_cfg = cfg.get("algorithm", {})
+    loss_type: str = str(algo_cfg.get("loss_type", "ce")).lower()
+    focal_gamma: float = float(algo_cfg.get("focal_gamma", 2.0))
+    logit_adjust_tau: float = float(algo_cfg.get("logit_adjust_tau", 0.0))
+
+    class_weights_device = None
+    if labeled_class_weights is not None:
+        class_weights_device = labeled_class_weights.to(device)
+        log.info("Using supervised class weights: %s", [round(float(x), 4) for x in class_weights_device.detach().cpu().tolist()])
+
+    class_priors_device = None
+    if labeled_class_priors is not None:
+        class_priors_device = labeled_class_priors.to(device)
+        log.info("Using class priors: %s", [round(float(x), 4) for x in class_priors_device.detach().cpu().tolist()])
+
+    log.info(
+        "Algorithm loss settings: loss_type=%s focal_gamma=%.2f logit_adjust_tau=%.3f",
+        loss_type,
+        focal_gamma,
+        logit_adjust_tau,
+    )
 
     # -- Enable gradient checkpointing (memory efficiency) --
     if hasattr(detector, "gradient_checkpointing_enable"):
@@ -319,6 +411,7 @@ def train(
     best_val_f1: float = -1.0
     history: list[dict] = []
     global_step: int = 0
+    skipped_nonfinite_batches: int = 0
 
     pseudo_iter = _infinite_cycle(pseudo_loader)
 
@@ -337,7 +430,15 @@ def train(
 
         t_epoch = time.time()
 
-        for labeled_batch in labeled_loader:
+        train_iter = tqdm(
+            labeled_loader,
+            desc=f"train epoch {epoch}/{max_epochs}",
+            unit="batch",
+            leave=False,
+            dynamic_ncols=True,
+        )
+
+        for labeled_batch in train_iter:
             # ---- Forward: labeled (reasoning channel) ----
             input_ids = labeled_batch["input_ids"].to(device)
             attention_mask = labeled_batch["attention_mask"].to(device)
@@ -351,20 +452,61 @@ def train(
             # Collect 3 pseudo batches
             pseudo_batches = [next(pseudo_iter) for _ in range(pseudo_ratio)]
 
+            # Merge pseudo mini-batches for one content-channel forward pass.
+            pseudo_input_ids = torch.cat([b["input_ids"] for b in pseudo_batches], dim=0).to(device)
+            pseudo_attention_mask = torch.cat([b["attention_mask"] for b in pseudo_batches], dim=0).to(device)
+            if all("token_type_ids" in b for b in pseudo_batches):
+                pseudo_token_type_ids = torch.cat([b["token_type_ids"] for b in pseudo_batches], dim=0).to(device)
+            else:
+                pseudo_token_type_ids = None
+            pseudo_labels = torch.cat([b["label"] for b in pseudo_batches], dim=0).to(device)
+            pseudo_weights = torch.cat([
+                b.get("weight", torch.ones_like(b["label"], dtype=torch.float))
+                for b in pseudo_batches
+            ], dim=0).to(device).float()
+            pseudo_weights = torch.nan_to_num(pseudo_weights, nan=1.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+
             with torch.amp.autocast(
                 device_type=device.type,
                 enabled=(use_amp and device.type == "cuda"),
                 dtype=amp_dtype,
             ):
-                loss = detector.compute_joint_loss(
-                    labeled_input_ids=input_ids,
-                    labeled_attention_mask=attention_mask,
-                    labeled_token_type_ids=token_type_ids,
-                    labeled_labels=labels,
-                    pseudo_batches=pseudo_batches,
-                    device=device,
-                    lam=lam,
+                labeled_logits = detector.forward_reasoning(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    token_type_ids=token_type_ids,
                 )
+                pseudo_logits = detector.forward_content(
+                    input_ids=pseudo_input_ids,
+                    attention_mask=pseudo_attention_mask,
+                    token_type_ids=pseudo_token_type_ids,
+                )
+                loss_dict = detector.compute_joint_loss(
+                    labeled_logits=labeled_logits,
+                    labeled_labels=labels,
+                    pseudo_logits=pseudo_logits,
+                    pseudo_labels=pseudo_labels,
+                    pseudo_weights=pseudo_weights,
+                    lambda_val=lam,
+                    class_weights=class_weights_device,
+                    loss_type=loss_type,
+                    focal_gamma=focal_gamma,
+                    logit_adjust_tau=logit_adjust_tau,
+                    class_priors=class_priors_device,
+                )
+                loss = loss_dict["total"]
+
+            if not torch.isfinite(loss):
+                skipped_nonfinite_batches += 1
+                optimizer.zero_grad(set_to_none=True)
+                if skipped_nonfinite_batches <= 5 or skipped_nonfinite_batches % 20 == 0:
+                    log.warning(
+                        "Non-finite loss detected at epoch=%d batch=%d (skipped=%d)",
+                        epoch,
+                        n_accum_batches + 1,
+                        skipped_nonfinite_batches,
+                    )
+                continue
 
             # Scale for gradient accumulation
             loss = loss / grad_accum
@@ -375,6 +517,13 @@ def train(
 
             epoch_loss += loss.item() * grad_accum
             n_accum_batches += 1
+
+            if n_accum_batches % 10 == 0:
+                train_iter.set_postfix(
+                    loss=f"{(epoch_loss / max(n_accum_batches, 1)):.4f}",
+                    lam=f"{lam:.5f}",
+                    step=global_step,
+                )
 
             if n_accum_batches % grad_accum == 0:
                 if scaler.is_enabled():
@@ -407,13 +556,14 @@ def train(
         elapsed = time.time() - t_epoch
 
         log.info(
-            "Epoch %d/%d  loss=%.4f  time=%.1fs  step=%d  lambda=%.4f",
+            "Epoch %d/%d  loss=%.4f  time=%.1fs  step=%d  lambda=%.5f  skipped_nonfinite=%d",
             epoch,
             max_epochs,
             avg_loss,
             elapsed,
             global_step,
             detector.get_lambda(global_step, total_steps),
+            skipped_nonfinite_batches,
         )
 
         # ---- Validation ----
@@ -584,6 +734,7 @@ def main() -> None:
     if device.type == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = use_tf32
         torch.backends.cudnn.allow_tf32 = use_tf32
+        torch.backends.cudnn.benchmark = True
         log.info("CUDA TF32 enabled: %s", use_tf32)
 
     # ------------------------------------------------------------------
@@ -639,7 +790,9 @@ def main() -> None:
     model_cfg = cfg.get("models", {})
 
     labeled_batch_size: int = train_cfg.get("batch_size", 16)
-    pseudo_batch_size: int = labeled_batch_size * 3
+    # We already sample `pseudo_ratio` batches per step in the training loop.
+    # Keep each pseudo mini-batch the same size as labeled to realize a 1:3 ratio.
+    pseudo_batch_size: int = labeled_batch_size
     max_length: int = train_cfg.get("max_length", 512)
     num_workers: int = int(train_cfg.get("num_workers", 0))
     deberta_model_name: str = model_cfg.get("deberta_base", "microsoft/deberta-v3-base")
@@ -669,6 +822,10 @@ def main() -> None:
         tokenizer,
         max_length=max_length,
     )
+
+    imbalance_cfg = cfg.get("imbalance", {})
+    use_balanced_pseudo_sampler = bool(imbalance_cfg.get("use_balanced_pseudo_sampler", True))
+    pseudo_sampler_power = float(imbalance_cfg.get("pseudo_sampler_power", 1.0))
 
     labeled_loader = DataLoader(
         train_dataset,
@@ -702,10 +859,23 @@ def main() -> None:
         tokenizer,
         max_length=256,
     )
+    pseudo_sampler = None
+    if use_balanced_pseudo_sampler:
+        pseudo_sampler = _build_balanced_sampler_from_labels(
+            pseudo_dataset.label_ids,
+            power=pseudo_sampler_power,
+        )
+        log.info(
+            "Enabled balanced pseudo sampler: power=%.2f replacement=True samples=%d",
+            pseudo_sampler_power,
+            len(pseudo_dataset.label_ids),
+        )
+
     pseudo_loader = DataLoader(
         pseudo_dataset,
         batch_size=pseudo_batch_size,
-        shuffle=True,
+        shuffle=(pseudo_sampler is None),
+        sampler=pseudo_sampler,
         num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
         persistent_workers=(num_workers > 0),
@@ -719,6 +889,15 @@ def main() -> None:
         len(val_loader),
     )
 
+    # -- Class distribution diagnostics --
+    train_labels = [int(r.get("label", 2)) if isinstance(r.get("label"), int) else LABEL2ID.get(r.get("label", "NOT_ENOUGH_INFO"), 2) for r in train_dataset.records]
+    _summarize_label_distribution(train_labels, "Labeled train")
+    _summarize_label_distribution(pseudo_dataset.label_ids, "Pseudo selected")
+
+    # -- Supervised class weights/priors from labeled train --
+    labeled_class_weights = compute_class_weights(str(train_path))
+    labeled_class_priors = compute_class_priors(str(train_path))
+
     # ------------------------------------------------------------------
     # Initialise DualChannelDetector
     # ------------------------------------------------------------------
@@ -727,7 +906,8 @@ def main() -> None:
     detector = DualChannelDetector(
         model_name=deberta_model_name,
         num_labels=NUM_LABELS,
-        lambda_init=hyper_cfg.get("lambda", 0.3),
+        lambda_init=hyper_cfg.get("lambda_init", 0.1),
+        lambda_final=hyper_cfg.get("lambda", 0.3),
     )
     detector.to(device)
 
@@ -752,6 +932,8 @@ def main() -> None:
         cfg=cfg,
         device=device,
         project_root=project_root,
+        labeled_class_weights=labeled_class_weights,
+        labeled_class_priors=labeled_class_priors,
     )
 
     # ------------------------------------------------------------------

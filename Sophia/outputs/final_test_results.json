@@ -1,0 +1,6 @@
+{
+  "checkpoint": "/workspace/Semi-vast/Sophia/checkpoints/detector/best_model.pt",
+  "accuracy": 0.47100515463917525,
+  "macro_f1": 0.2134618192436852,
+  "auc": NaN
+}

@@ -1,0 +1,14 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local environments and caches
+.venv/
+.cache/
+.hf_models/
+
+# Runtime artifacts
+*.log
+
+# Optional heavy artifacts (keep local by default)
+checkpoints/

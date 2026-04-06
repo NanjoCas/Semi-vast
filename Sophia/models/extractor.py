@@ -213,6 +213,8 @@ class TextualFeatureExtractor(nn.Module):
         beta1: float = 0.5,
         beta2: float = 0.3,
         beta3: float = 0.2,
+        class_priors: list[float] | None = None,
+        logit_adjust_tau: float = 0.0,
     ) -> list[dict]:
         """
         Generate pseudo-labels for an unlabeled dataset using DeBERTa predictions
@@ -237,6 +239,10 @@ class TextualFeatureExtractor(nn.Module):
             beta1 (float): Weight for DeBERTa confidence. Defaults to 0.5.
             beta2 (float): Weight for |logic_score|. Defaults to 0.3.
             beta3 (float): Weight for discourse_score. Defaults to 0.2.
+            class_priors (list[float] | None): Optional class prior probabilities
+                for logit adjustment; must have length == num_labels.
+            logit_adjust_tau (float): Strength of prior logit adjustment.
+                0.0 disables adjustment.
 
         Returns:
             list[dict]: One dict per sample with keys:
@@ -275,6 +281,17 @@ class TextualFeatureExtractor(nn.Module):
         # Collect per-sample DeBERTa outputs first
         deberta_results: list[dict] = []
 
+        prior_log = None
+        if class_priors is not None and float(logit_adjust_tau) > 0.0:
+            if len(class_priors) != self.num_labels:
+                raise ValueError(
+                    f"class_priors length mismatch: expected {self.num_labels}, got {len(class_priors)}"
+                )
+            priors_t = torch.tensor(class_priors, dtype=torch.float32, device=device)
+            priors_t = torch.clamp(priors_t, min=1e-8)
+            priors_t = priors_t / priors_t.sum()
+            prior_log = torch.log(priors_t)
+
         for batch in tqdm(loader, desc="DeBERTa inference", unit="batch"):
             ids: list[str] = batch["id"]
 
@@ -286,9 +303,18 @@ class TextualFeatureExtractor(nn.Module):
             if "token_type_ids" in batch:
                 token_type_ids_b = batch["token_type_ids"].to(device)
 
-            logits, probs, pred_classes, confidences = self.predict(
+            logits, raw_probs, _pred_classes, _confidences = self.predict(
                 input_ids_b, attention_mask_b, token_type_ids_b
             )
+
+            if prior_log is not None:
+                adjusted_logits = logits - float(logit_adjust_tau) * prior_log.unsqueeze(0)
+                probs = F.softmax(adjusted_logits, dim=-1)
+            else:
+                probs = raw_probs
+
+            pred_classes = torch.argmax(probs, dim=-1)
+            confidences, _ = torch.max(probs, dim=-1)
 
             # Entropy: -sum(p * log(p + eps))
             entropy_vals = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)
