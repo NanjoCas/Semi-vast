@@ -76,16 +76,58 @@ class TextualFeatureExtractor(nn.Module):
         self,
         model_name: str = "microsoft/deberta-v3-base",
         num_labels: int = 3,
-        dropout: float = 0.1,
+        dropout: float = 0.2,  # 增加 dropout 从 0.1 到 0.2 以减少过拟合
+        freeze_layers: int = 6,  # 冻结前 6 层以减少过拟合
+        init_from_nli: bool = False,  # 是否从 NLI 模型初始化
+        nli_model_name: str = "cross-encoder/nli-deberta-v3-large",
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
     ):
         super().__init__()
 
-        config = AutoConfig.from_pretrained(model_name)
-        hidden_size: int = config.hidden_size
+        cache_kwargs = {}
+        if cache_dir is not None:
+            cache_kwargs["cache_dir"] = str(cache_dir)
+        if local_files_only:
+            cache_kwargs["local_files_only"] = True
 
-        # Keep encoder in float32 by default to avoid dtype mismatches on CPU
-        # (e.g., Half from pretrained weights vs Float classifier params).
-        self.deberta = AutoModel.from_pretrained(model_name, dtype=torch.float32)
+        # 首先加载基础模型以获取配置
+        base_config = AutoConfig.from_pretrained(model_name, **cache_kwargs)
+        hidden_size: int = base_config.hidden_size
+
+        # 如果从 NLI 初始化，使用 NLI 模型的配置
+        if init_from_nli:
+            try:
+                nli_config = AutoConfig.from_pretrained(nli_model_name, **cache_kwargs)
+                hidden_size = nli_config.hidden_size  # 使用 NLI 的 hidden_size
+                self.deberta = AutoModel.from_pretrained(
+                    nli_model_name,
+                    dtype=torch.float32,
+                    **cache_kwargs,
+                )
+                print(f"Initialized from NLI model: {nli_model_name} (hidden_size={hidden_size})")
+            except Exception as e:
+                print(f"Failed to load NLI model: {e}, falling back to base model.")
+                self.deberta = AutoModel.from_pretrained(
+                    model_name,
+                    dtype=torch.float32,
+                    **cache_kwargs,
+                )
+                hidden_size = base_config.hidden_size
+        else:
+            self.deberta = AutoModel.from_pretrained(
+                model_name,
+                dtype=torch.float32,
+                **cache_kwargs,
+            )
+        
+        # 冻结指定层数
+        if freeze_layers > 0 and hasattr(self.deberta, 'encoder'):
+            layers_to_freeze = min(freeze_layers, len(self.deberta.encoder.layer))
+            for layer in self.deberta.encoder.layer[:layers_to_freeze]:
+                for param in layer.parameters():
+                    param.requires_grad = False
+        
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(hidden_size, num_labels),

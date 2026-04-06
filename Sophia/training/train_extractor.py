@@ -33,7 +33,16 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 import transformers
-
+# 数据增强函数
+def augment_text(text: str) -> str:
+    """简单文本增强：随机删除词或同义词替换（这里用随机删除作为示例）"""
+    words = text.split()
+    if len(words) <= 3:
+        return text
+    # 随机删除 10% 的词
+    keep_prob = 0.9
+    augmented = [word for word in words if random.random() < keep_prob]
+    return ' '.join(augmented) if augmented else text
 # ---------------------------------------------------------------------------
 # Project root on sys.path so run_pipeline.py and models/ are importable
 # ---------------------------------------------------------------------------
@@ -401,8 +410,14 @@ def main() -> None:
 
     # ── Tokenizer ──────────────────────────────────────────────────────────
     model_name: str = models_cfg["deberta_base"]
+    model_cache_dir = PROJECT_ROOT / paths_cfg.get("model_cache_dir", "model_cache")
+    use_local_models = bool(config.get("use_local_models", False))
+    cache_kwargs = {"cache_dir": str(model_cache_dir)}
+    if use_local_models:
+        cache_kwargs["local_files_only"] = True
+
     print(f"[train_extractor] Loading tokenizer: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, **cache_kwargs)
 
     # ── Datasets ───────────────────────────────────────────────────────────
     max_length: int = training_cfg.get("max_length", 512)
@@ -486,12 +501,23 @@ def main() -> None:
 
     # ── Model ───────────────────────────────────────────────────────────────
     print(f"[train_extractor] Initialising TextualFeatureExtractor ({model_name})...")
-    model = TextualFeatureExtractor(model_name=model_name, num_labels=3)
+    freeze_layers = training_cfg.get("freeze_layers", 6)
+    init_from_nli = training_cfg.get("init_from_nli", False)
+    nli_model_name = models_cfg.get("nli_model", "cross-encoder/nli-deberta-v3-large")
+    model_cache_dir = PROJECT_ROOT / paths_cfg.get("model_cache_dir", "model_cache")
+    model = TextualFeatureExtractor(
+        model_name=model_name,
+        num_labels=3,
+        freeze_layers=freeze_layers,
+        init_from_nli=init_from_nli,
+        nli_model_name=nli_model_name,
+        cache_dir=model_cache_dir,
+        local_files_only=use_local_models,
+    )
 
     # Enable gradient checkpointing for small batch sizes to save memory
-    if batch_size <= 8:
-        print("[train_extractor] Enabling gradient checkpointing (batch_size <= 8).")
-        model.deberta.gradient_checkpointing_enable()
+    print("[train_extractor] Enabling gradient checkpointing to save memory.")
+    model.deberta.gradient_checkpointing_enable()
 
     model.to(device)
     scaler = torch.amp.GradScaler(device="cuda", enabled=(device.type == "cuda" and use_fp16))
@@ -502,13 +528,13 @@ def main() -> None:
     optimizer = AdamW(
         model.parameters(),
         lr=float(training_cfg.get("learning_rate", 2e-5)),
-        weight_decay=0.01,
+        weight_decay=0.05,  # 增加 weight_decay 从 0.01 到 0.05 以增强正则化
     )
 
     max_epochs: int = training_cfg.get("max_epochs", 10)
     gradient_accumulation: int = training_cfg.get("gradient_accumulation", 4)
     warmup_steps: int = training_cfg.get("warmup_steps", 200)
-    early_stopping_patience: int | None = training_cfg.get("early_stopping_patience", None)
+    early_stopping_patience: int | None = training_cfg.get("early_stopping_patience", 5)  # 设置默认 patience 为 5 以防止过拟合
     max_grad_norm: float = 1.0
 
     if args.patience is not None:
@@ -557,6 +583,23 @@ def main() -> None:
             if token_type_ids is not None:
                 token_type_ids = token_type_ids.to(device)
             labels = batch["label"].to(device)
+
+            # 数据增强：随机对 50% 的批次应用增强
+            if random.random() < 0.5 and step > 1:  # 跳过第一个批次
+                # 这里简化，只在 CPU 上增强文本，然后重新编码
+                # 注意：这会增加计算开销
+                augmented_texts = []
+                for i in range(len(batch["input_ids"])):
+                    # 解码文本
+                    text = tokenizer.decode(batch["input_ids"][i], skip_special_tokens=True)
+                    augmented_text = augment_text(text)
+                    augmented_texts.append(augmented_text)
+                # 重新编码
+                augmented_batch = tokenizer(augmented_texts, max_length=max_length, padding=True, truncation=True, return_tensors="pt")
+                input_ids = augmented_batch["input_ids"].to(device)
+                attention_mask = augmented_batch["attention_mask"].to(device)
+                if "token_type_ids" in augmented_batch:
+                    token_type_ids = augmented_batch["token_type_ids"].to(device)
 
             with torch.amp.autocast(
                 device_type=device.type,

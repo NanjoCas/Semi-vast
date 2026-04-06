@@ -1,5 +1,5 @@
 models:
-  deberta_base: "/workspace/Semi-vast/Sophia/.hf_models/deberta-v3-base"
+  deberta_base: "microsoft/deberta-v3-large"  # 改为 large 以匹配 NLI 模型
   nli_model: "cross-encoder/nli-deberta-v3-large"
 
 paths:
@@ -10,6 +10,9 @@ paths:
   pseudo_labels: "processed/pseudo_labels/pseudo_labeled_filtered.jsonl"
   checkpoints: "checkpoints/"
   outputs: "outputs/"
+  model_cache_dir: "/root/autodl-tmp/model_cache/"
+
+use_local_models: false
 
 hyperparameters:
   lambda_init: 0.1
@@ -23,7 +26,7 @@ hyperparameters:
 
 training:
   batch_size: 32
-  learning_rate: 1.5e-5
+  learning_rate: 1.0e-5  # 减少学习率从 1.5e-5 到 1.0e-5 以减少过拟合
   max_epochs: 16
   warmup_steps: 600
   gradient_accumulation: 2
@@ -32,6 +35,8 @@ training:
   num_workers: 12
   use_bf16: true
   use_tf32: true
+  freeze_layers: 6  # 冻结前 6 层
+  init_from_nli: true  # 从 NLI 模型初始化
 
 rl:
   state_dim: 4

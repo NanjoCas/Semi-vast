@@ -316,8 +316,19 @@ def main() -> None:
         )
 
     model_name: str = models_cfg["deberta_base"]
+    model_cache_dir = PROJECT_ROOT / paths_cfg.get("model_cache_dir", "model_cache")
+    use_local_models = bool(config.get("use_local_models", False))
+    cache_kwargs = {"cache_dir": str(model_cache_dir)}
+    if use_local_models:
+        cache_kwargs["local_files_only"] = True
+
     print(f"[generate_pseudolabels] Initialising TextualFeatureExtractor ({model_name})...")
-    extractor = TextualFeatureExtractor(model_name=model_name, num_labels=3)
+    extractor = TextualFeatureExtractor(
+        model_name=model_name,
+        num_labels=3,
+        cache_dir=model_cache_dir,
+        local_files_only=use_local_models,
+    )
     extractor.load(str(checkpoint_path), device=device)
     extractor.to(device)
     extractor.eval()
@@ -325,7 +336,12 @@ def main() -> None:
     # ── Load auxiliary scorers ───────────────────────────────────────────────
     nli_model: str = models_cfg["nli_model"]
     print(f"[generate_pseudolabels] Loading LogicScorer ({nli_model})...")
-    logic_scorer = LogicScorer(model_name=nli_model, device=device)
+    logic_scorer = LogicScorer(
+        model_name=nli_model,
+        device=device,
+        cache_dir=model_cache_dir,
+        local_files_only=use_local_models,
+    )
 
     print("[generate_pseudolabels] Loading DiscourseScorer...")
     discourse_scorer = _DiscourseScorerAdapter(DiscourseScorer())
@@ -340,7 +356,7 @@ def main() -> None:
     max_length: int = training_cfg.get("max_length", 256)
     from transformers import AutoTokenizer
     print(f"[generate_pseudolabels] Loading tokenizer: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, **cache_kwargs)
 
     print(f"[generate_pseudolabels] Loading unlabeled pool from: {unlabeled_pool_path}")
     unlabeled_dataset = UnlabeledClaimDataset(

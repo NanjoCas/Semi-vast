@@ -1,0 +1,19 @@
+# Core dependencies for the Sophia project
+# For NVIDIA RTX 5090 / CUDA 12.8, install with:
+# pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://download.pytorch.org/whl/cu128
+
+#torch==2.11.0+cu128
+transformers==5.5.0
+datasets==4.8.4
+pandas==3.0.2
+scikit-learn==1.8.0
+stable-baselines3==2.8.0
+gymnasium==1.2.3
+numpy==2.4.3
+tqdm==4.67.3
+wandb==0.25.1
+vaderSentiment==3.3.2
+textblob==0.20.0
+pyyaml==6.0.3
+sentencepiece==0.2.1
+protobuf==6.33.6

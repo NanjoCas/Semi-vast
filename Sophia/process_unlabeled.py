@@ -374,7 +374,7 @@ def process_environment_news(
         return [], {"skipped": True}
 
     print(f"  读取 {csv_path}...")
-    df = pd.read_csv(csv_path, dtype=str)
+    df = pd.read_csv(csv_path, dtype=str, engine='python', on_bad_lines='skip')
     if df.empty:
         print(f"  [跳过] Environment News CSV 内容为空：{csv_path}")
         return [], {"skipped": True}

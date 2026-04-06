@@ -34,7 +34,13 @@ class LogicScorer:
 
     DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-large"
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, device=None):
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        device=None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
+    ):
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
@@ -44,9 +50,17 @@ class LogicScorer:
                 device = "cpu"
 
         self.device = torch.device(device)
+        cache_kwargs = {}
+        if cache_dir is not None:
+            cache_kwargs["cache_dir"] = str(cache_dir)
+        if local_files_only:
+            cache_kwargs["local_files_only"] = True
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, **cache_kwargs)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            **cache_kwargs,
+        )
         self.model.to(self.device)
         self.model.eval()
 

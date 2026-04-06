@@ -6,21 +6,17 @@ cd "$PROJECT_ROOT"
 
 CONFIG_PATH="${1:-configs/config.yaml}"
 CUDA_DEVICE="${CUDA_DEVICE:-0}"
-SKIP_PREP="${SKIP_PREP:-0}"
+SKIP_PREP="${SKIP_PREP:-1}"
 
 export CUDA_VISIBLE_DEVICES="$CUDA_DEVICE"
 export TOKENIZERS_PARALLELISM="false"
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "[ERROR] Config not found: $CONFIG_PATH"
   exit 1
 fi
-
-if [[ ! -d ".venv" ]]; then
-  echo "[ERROR] .venv not found at $PROJECT_ROOT/.venv"
-  exit 1
-fi
-
+#环境选取
 source .venv/bin/activate
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -72,7 +68,7 @@ else
 fi
 
 step "Train Extractor" \
-  python training/train_extractor.py --config "$CONFIG_PATH" --device cuda
+  python training/train_extractor.py --config "$CONFIG_PATH" --device cuda --batch_size 16
 
 step "Generate Pseudo Labels" \
   python training/generate_pseudolabels.py --config "$CONFIG_PATH" --device cuda
