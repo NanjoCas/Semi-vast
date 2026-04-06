@@ -1,0 +1,53 @@
+models:
+  deberta_base: "microsoft/deberta-v3-base"
+  nli_model: "cross-encoder/nli-deberta-v3-large"
+
+paths:
+  labeled_train: "processed/labeled/train.jsonl"
+  labeled_dev: "processed/labeled/dev.jsonl"
+  labeled_test: "processed/labeled/test.jsonl"
+  unlabeled_pool: "processed/unlabeled/unlabeled_pool.jsonl"
+  pseudo_labels: "processed/pseudo_labels/pseudo_labeled_filtered.jsonl"
+  checkpoints: "checkpoints/"
+  outputs: "outputs/"
+
+hyperparameters:
+  lambda: 0.3
+  beta1: 0.5
+  beta2: 0.3
+  beta3: 0.2
+  alpha: 0.7
+  beta: 0.3
+  epsilon: 0.2
+
+training:
+  batch_size: 32
+  learning_rate: 3.0e-5
+  max_epochs: 16
+  warmup_steps: 600
+  gradient_accumulation: 2
+  max_length: 512
+  seed: 42
+  num_workers: 12
+  use_bf16: true
+  use_tf32: true
+
+rl:
+  state_dim: 4
+  action_dim: 2
+  ppo_lr: 2.0e-4
+  ppo_epochs: 8
+  clip_epsilon: 0.2
+  gamma: 0.99
+  gae_lambda: 0.95
+  n_steps: 2048
+  probe_epochs: 10
+
+evaluation:
+  metrics:
+    - accuracy
+    - f1_macro
+    - precision
+    - recall
+    - auc
+  logic_consistency: true

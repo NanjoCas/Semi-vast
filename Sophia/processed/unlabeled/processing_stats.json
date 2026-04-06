@@ -1,0 +1,22 @@
+{
+  "twitter": {
+    "skipped": true
+  },
+  "climatemist": {
+    "skipped": true
+  },
+  "environment_news": {
+    "raw_rows": 30059,
+    "kept": 30052,
+    "dedup_ratio": "100.0%"
+  },
+  "merged": {
+    "total": 30052,
+    "source_dist": {
+      "guardian_environment_news": 30052
+    },
+    "twitter": 0,
+    "climatemist": 0,
+    "environment_news": 30052
+  }
+}

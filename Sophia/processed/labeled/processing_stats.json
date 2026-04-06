@@ -1,0 +1,60 @@
+{
+  "climate_fever": {
+    "total": 1535,
+    "train": 1074,
+    "dev": 230,
+    "test": 231,
+    "label_dist": {
+      "SUPPORTS": 654,
+      "REFUTES": 407,
+      "NOT_ENOUGH_INFO": 474
+    }
+  },
+  "pubhealth": {
+    "total_raw": 11067,
+    "total_kept": 11090,
+    "removed_covid_or_invalid": -23,
+    "split_sizes": {
+      "train": 8701,
+      "dev": 1299,
+      "test": 1090
+    },
+    "label_dist": {
+      "REFUTES": 3326,
+      "NOT_ENOUGH_INFO": 2072,
+      "SUPPORTS": 5692
+    }
+  },
+  "merged": {
+    "train": {
+      "total": 10849,
+      "from_cf": 2148,
+      "from_ph": 8701,
+      "label_dist": {
+        "REFUTES": 3178,
+        "SUPPORTS": 5405,
+        "NOT_ENOUGH_INFO": 2266
+      }
+    },
+    "dev": {
+      "total": 1759,
+      "from_cf": 460,
+      "from_ph": 1299,
+      "label_dist": {
+        "SUPPORTS": 864,
+        "REFUTES": 512,
+        "NOT_ENOUGH_INFO": 383
+      }
+    },
+    "test": {
+      "total": 1552,
+      "from_cf": 462,
+      "from_ph": 1090,
+      "label_dist": {
+        "REFUTES": 450,
+        "SUPPORTS": 731,
+        "NOT_ENOUGH_INFO": 371
+      }
+    }
+  }
+}
