@@ -1,0 +1,32 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local environments and caches
+.venv/
+.cache/
+.hf_models/
+
+# Runtime artifacts
+*.log
+
+# Data/model/generated artifacts (raw datasets, model weights, processed splits)
+Data/
+checkpoints/
+model_cache/
+processed/
+.ipynb_checkpoints/
+*.pt
+*.bin
+*.safetensors
+*.csv
+*.tsv
+*.jsonl
+
+# outputs/ holds lightweight training records (metrics json, plots) and IS tracked
+
+# Local Claude Code tool permissions (personal, machine-specific)
+.claude/settings.local.json
+
+# OS noise
+.DS_Store

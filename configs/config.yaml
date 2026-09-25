@@ -1,0 +1,68 @@
+algorithm:
+  focal_gamma: 2.0
+  logit_adjust_tau: 0.5
+  loss_type: focal
+evaluation:
+  logic_consistency: true
+  metrics:
+  - accuracy
+  - f1_macro
+  - precision
+  - recall
+  - auc
+hyperparameters:
+  alpha: 0.7
+  beta: 0.3
+  beta1: 0.5
+  beta2: 0.3
+  beta3: 0.2
+  epsilon: 0.2
+  lambda: 0.0
+  lambda_init: 0.1
+  lambda_final: 0.3
+imbalance:
+  apply_prior_adjust_in_pseudolabels: true
+  class_weight_power: 1.5
+  extractor_sampler_power: 1.0
+  normalize_class_weights: true
+  pseudo_sampler_power: 1.0
+  use_balanced_extractor_sampler: true
+  use_balanced_pseudo_sampler: true
+models:
+  deberta_base: microsoft/deberta-v3-large
+  nli_model: cross-encoder/nli-deberta-v3-large
+paths:
+  checkpoints: checkpoints/
+  labeled_dev: processed/labeled/dev.jsonl
+  labeled_test: processed/labeled/test.jsonl
+  labeled_train: processed/labeled/train.jsonl
+  model_cache_dir: model_cache/
+  outputs: outputs/
+  pseudo_labels: processed/pseudo_labels/pseudo_labeled_filtered.jsonl
+  unlabeled_pool: processed/unlabeled/unlabeled_pool.jsonl
+rl:
+  action_dim: 2
+  clip_epsilon: 0.2
+  gae_lambda: 0.95
+  gamma: 0.99
+  n_steps: 2048
+  ppo_epochs: 8
+  ppo_lr: 0.0002
+  probe_epochs: 10
+  state_dim: 4
+training:
+  batch_size: 16
+  freeze_layers: 6
+  gradient_accumulation: 4
+  init_from_nli: true
+  learning_rate: 1.0e-05
+  max_epochs: 8
+  max_length: 384
+  num_workers: 4
+  seed: 42
+  use_bf16: true
+  use_tf32: true
+  warmup_steps: 100
+  use_pseudo: true
+  pseudo_ratio: 3
+use_local_models: false

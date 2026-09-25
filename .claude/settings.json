@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv)",
+      "PowerShell(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader)",
+      "PowerShell(Get-Process -Id 57508 -ErrorAction SilentlyContinue)"
+    ]
+  }
+}
