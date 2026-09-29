@@ -1,9 +1,17 @@
 {
   "A": {
-    "label": "Baseline A (supervised only)"
+    "label": "Baseline A (supervised only)",
+    "checkpoint": "D:\\LIUBOProj\\Sophia\\checkpoints\\detector_baseline_A_supervised\\best_model.pt",
+    "accuracy": 0.743225806451613,
+    "macro_f1": 0.7185887519908044,
+    "auc": 0.8883916299801659
   },
   "B": {
-    "label": "Baseline B (confidence threshold)"
+    "label": "Baseline B (confidence threshold)",
+    "checkpoint": "D:\\LIUBOProj\\Sophia\\checkpoints\\detector_baseline_B_confidence\\best_model.pt",
+    "accuracy": 0.743225806451613,
+    "macro_f1": 0.7197009814796395,
+    "auc": 0.8990777732636154
   },
   "C": {
     "label": "Baseline C (full model)",

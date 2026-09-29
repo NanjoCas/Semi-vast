@@ -1,0 +1,6 @@
+{
+  "checkpoint": "D:\\LIUBOProj\\Sophia\\checkpoints\\detector_baseline_A_supervised\\best_model.pt",
+  "accuracy": 0.743225806451613,
+  "macro_f1": 0.7185887519908044,
+  "auc": 0.8883916299801659
+}
