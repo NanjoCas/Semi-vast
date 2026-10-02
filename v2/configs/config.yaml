@@ -1,0 +1,96 @@
+# =============================================================================
+# Semi-vast v2 configuration
+# 所有相对路径都相对于 v2/ 目录解析（见 common/paths.py）。
+# =============================================================================
+
+paths:
+  # ---- 原始数据（默认复用上一级项目的 Data/ 目录，不复制数据）----
+  raw_climate_fever: ../Data/Climate Fever Dataset/archive/climate-fever.jsonl
+  raw_pubhealth_dir: ../Data/PUBHEALTH-DATASET/archive
+  # ---- v2 生成物 ----
+  processed_dir: processed          # 修复泄漏后的 labeled/{train,dev,test}.jsonl
+  runs_dir: runs                    # 每个 (label_ratio, seed) 一个子目录
+  results_dir: results              # 汇总表格与图
+  model_cache_dir: ../model_cache   # 与原项目共用 HF 模型缓存
+
+use_local_models: false
+
+models:
+  deberta_base: microsoft/deberta-v3-large
+  nli_model: cross-encoder/nli-deberta-v3-large
+
+# ---- 数据构建（data_prep/build_labeled.py）----
+data:
+  split_seed: 42                    # Climate-FEVER 自行切分 train/dev/test 的种子
+  max_evidences: 3                  # 每条 claim 最多保留的证据句数
+  max_evidence_words: 120           # 单条证据句截断长度（词）
+  pubhealth_evidence: main_text     # main_text（推荐，无泄漏） | explanation（旧做法，有泄漏）
+  cf_oversample_labeled: 2          # 仅对"有标签训练部分"中的 Climate-FEVER 过采样；dev/test 不再重复
+
+# ---- 实验矩阵（run_all.py）----
+experiment:
+  label_ratios: [0.1, 0.25, 0.5]    # 保留标签的比例，其余 train 样本作为无标签池
+  seeds: [42, 43, 44]
+  # A=纯监督  B=置信度阈值  W=复合权重过滤(无RL)  R=随机子集(与C同规模)  C=完整模型(RL)  O=Oracle(金标签上界)
+  methods: [A, B, W, R, C, O]
+  device: cuda
+  confidence_threshold: 0.7         # 方法 B
+  weight_threshold: 0.4             # 复合权重过滤阈值（W 与 RL 的输入池）
+  cleanup_checkpoints: true         # 每个 run 结束后删除 .pt，只保留指标与预测（DeBERTa-large 每个 ~1.7GB）
+
+algorithm:
+  focal_gamma: 2.0
+  logit_adjust_tau: 0.5
+  loss_type: focal                  # 有监督部分；A 组现在与其他组使用同一损失
+  pseudo_loss_type: ce              # 伪标签部分不再用 focal（focal 会把高置信伪标签的 loss 压到 ~0）
+  pseudo_weight_norm: mean          # mean: mean(w*L)  |  sum: sum(w*L)/sum(w)（旧做法，权重绝对值失效）
+
+hyperparameters:
+  alpha: 0.7
+  beta: 0.3
+  beta1: 0.5
+  beta2: 0.3
+  beta3: 0.2
+  epsilon: 0.2
+  lambda_init: 0.3
+  lambda_final: 0.7
+
+imbalance:
+  apply_prior_adjust_in_pseudolabels: true
+  class_weight_power: 1.5
+  extractor_sampler_power: 1.0
+  normalize_class_weights: true
+  pseudo_sampler_power: 1.0
+  use_balanced_extractor_sampler: true
+  use_balanced_pseudo_sampler: true
+
+rl:
+  action_dim: 2
+  state_dim: 4
+  clip_epsilon: 0.2
+  gamma: 1.0                        # 回合末稀疏奖励：gamma<1 会让 512 步前的动作几乎拿不到信号
+  gae_lambda: 1.0
+  ppo_epochs: 4
+  ppo_lr: 0.0003
+  n_iterations: 30                  # PPO 更新次数
+  episodes_per_iter: 4              # 每次更新采样的回合数（回合间对比才产生有效 advantage）
+  episode_size: 512                 # 每回合从池中随机抽取的样本数
+  min_keep_ratio: 0.05              # 最终保留比例低于此值时按 keep 概率补足，并在日志中警告
+
+training:
+  batch_size: 16
+  pseudo_batch_size: 16
+  pseudo_ratio: 3                   # 每个有标签 batch 配几个伪标签 batch；伪标签现在是句对，显存不够时改成 1 或 2
+  freeze_layers: 6
+  gradient_accumulation: 4
+  init_from_nli: true
+  learning_rate: 1.0e-05
+  max_epochs: 8
+  max_length: 384
+  num_workers: 4
+  seed: 42                          # 会被 run_all.py 的 --seed 覆盖
+  use_bf16: true
+  use_tf32: true
+  warmup_ratio: 0.1                 # 取代固定 warmup_steps：低标注比例下总步数很少，固定 100 步会占满训练
+  extractor_text_augment: false     # 旧代码的随机删词增强会把句对 decode 成一句再编码，破坏 claim/evidence 结构
+  early_stopping_patience: 5
