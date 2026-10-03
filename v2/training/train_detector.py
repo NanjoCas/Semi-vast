@@ -17,6 +17,15 @@ v2 changes vs. v1:
   - Paths come from --run_dir and --method; test-set predictions are saved for
     paired significance tests; checkpoints hold model weights only and are
     deleted after evaluation unless --keep_checkpoint is given.
+  - training.epoch_mode=cover_pseudo: an epoch draws as many pseudo samples as
+    the pseudo set holds (labeled batches are cycled). With the balanced pseudo
+    sampler (sampling with replacement) minority classes are still repeated. With the old
+    "labeled" mode an epoch was 68 labeled batches at ratio 0.1, i.e. only 136
+    optimizer steps in total, and the gold-label Oracle (O) could not beat A.
+    Pseudo batches are spread evenly over the steps, so a small set (R/C) is no
+    longer repeated ~10x per epoch.
+  - training.dynamic_padding pads each batch to its longest pair instead of
+    max_length; training.gradient_checkpointing is now configurable.
 
 Methods: A (no pseudo labels), B, W, R, C, O (see training/build_baseline_sets.py).
 
@@ -51,7 +60,13 @@ from tqdm import tqdm
 V2_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(V2_ROOT))
 
-from common.data_utils import ClaimEvidenceDataset, ID2LABEL, NUM_LABELS  # noqa: E402
+from common.data_utils import (  # noqa: E402
+    ClaimEvidenceDataset,
+    DynamicPaddingCollator,
+    ID2LABEL,
+    NUM_LABELS,
+    pad_sequences,
+)
 from common.paths import RunPaths, cfg_path, labeled_split_path, load_config  # noqa: E402
 from models.detector import DualChannelDetector, compute_class_priors, compute_class_weights  # noqa: E402
 
@@ -112,6 +127,24 @@ def _build_balanced_sampler_from_labels(label_ids: list[int], power: float = 1.0
     per_class = {lid: (0.0 if cnt <= 0 else 1.0 / (float(cnt) ** float(power))) for lid, cnt in counts.items()}
     sample_weights = torch.tensor([per_class[int(lid)] for lid in label_ids], dtype=torch.double)
     return WeightedRandomSampler(weights=sample_weights, num_samples=len(label_ids), replacement=True)
+
+
+def _pseudo_batches_per_step(n_pseudo_batches: int, n_steps: int) -> list[int]:
+    """Spread n_pseudo_batches as evenly as possible over n_steps (each entry is 0..ceil(P/N))."""
+    if n_steps <= 0:
+        return []
+    return [((i + 1) * n_pseudo_batches) // n_steps - (i * n_pseudo_batches) // n_steps for i in range(n_steps)]
+
+
+def _concat_batches(batches: list[dict], pad_token_id: int) -> dict:
+    """Concatenate pseudo batches whose sequence lengths may differ (dynamic padding)."""
+    return {
+        "input_ids": pad_sequences([b["input_ids"] for b in batches], pad_token_id, multiple_of=1),
+        "attention_mask": pad_sequences([b["attention_mask"] for b in batches], 0, multiple_of=1),
+        "token_type_ids": pad_sequences([b["token_type_ids"] for b in batches], 0, multiple_of=1),
+        "label": torch.cat([b["label"] for b in batches]),
+        "weight": torch.cat([b["weight"] for b in batches]),
+    }
 
 
 def _to_device(batch: dict, device: torch.device) -> tuple:
@@ -191,8 +224,18 @@ def train(
     ckpt_path: Path,
     labeled_class_weights: Optional[torch.Tensor] = None,
     labeled_class_priors: Optional[torch.Tensor] = None,
+    pad_token_id: int = 0,
 ) -> list[dict]:
-    """Joint training: each labeled batch is paired with `pseudo_ratio` pseudo batches."""
+    """
+    Joint training on labeled batches plus pseudo batches.
+
+    epoch_mode "labeled":      one epoch = one pass over the labeled loader, each
+                               labeled batch paired with `pseudo_ratio` pseudo batches
+                               (pseudo loader cycled endlessly).
+    epoch_mode "cover_pseudo": one epoch = max(labeled batches, ceil(pseudo batches /
+                               pseudo_ratio)) steps; each pseudo batch is used once per
+                               epoch, spread evenly; labeled loader is cycled.
+    """
     train_cfg = cfg.get("training", {})
     algo_cfg = cfg.get("algorithm", {})
 
@@ -202,6 +245,17 @@ def train(
     max_grad_norm = 1.0
     pseudo_ratio = int(train_cfg.get("pseudo_ratio", 3))
     use_pseudo = pseudo_loader is not None and pseudo_ratio > 0
+    epoch_mode = str(train_cfg.get("epoch_mode", "labeled")).lower()
+    if epoch_mode not in ("labeled", "cover_pseudo"):
+        raise ValueError(f"training.epoch_mode must be 'labeled' or 'cover_pseudo', got {epoch_mode!r}")
+    n_labeled_batches = len(labeled_loader)
+    if use_pseudo and epoch_mode == "cover_pseudo":
+        n_pseudo_batches = len(pseudo_loader)
+        batches_per_epoch = max(n_labeled_batches, math.ceil(n_pseudo_batches / pseudo_ratio))
+        pseudo_schedule = _pseudo_batches_per_step(n_pseudo_batches, batches_per_epoch)
+    else:
+        batches_per_epoch = n_labeled_batches
+        pseudo_schedule = [pseudo_ratio if use_pseudo else 0] * batches_per_epoch
 
     use_bf16 = bool(train_cfg.get("use_bf16", False))
     use_fp16 = bool(train_cfg.get("use_fp16", False))
@@ -224,20 +278,29 @@ def train(
         pseudo_loss_type, pseudo_weight_norm, use_pseudo, pseudo_ratio,
     )
 
-    detector.enable_gradient_checkpointing()
+    if bool(train_cfg.get("gradient_checkpointing", True)):
+        detector.enable_gradient_checkpointing()
 
     optimizer = AdamW([p for p in detector.parameters() if p.requires_grad], lr=lr, weight_decay=0.01)
-    steps_per_epoch = math.ceil(len(labeled_loader) / grad_accum)
+    steps_per_epoch = math.ceil(batches_per_epoch / grad_accum)
     total_steps = steps_per_epoch * max_epochs
     if "warmup_ratio" in train_cfg:
         warmup_steps = int(round(float(train_cfg["warmup_ratio"]) * total_steps))
     else:
         warmup_steps = int(train_cfg.get("warmup_steps", 100))
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
-    log.info("steps_per_epoch=%d total_steps=%d warmup_steps=%d", steps_per_epoch, total_steps, warmup_steps)
+    log.info(
+        "epoch_mode=%s labeled_batches=%d batches_per_epoch=%d pseudo_batches_per_epoch=%d "
+        "steps_per_epoch=%d total_steps=%d warmup_steps=%d gradient_checkpointing=%s",
+        epoch_mode, n_labeled_batches, batches_per_epoch, sum(pseudo_schedule),
+        steps_per_epoch, total_steps, warmup_steps, bool(train_cfg.get("gradient_checkpointing", True)),
+    )
 
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-    pseudo_iter = _infinite_cycle(pseudo_loader) if use_pseudo else None
+    labeled_iter = _infinite_cycle(labeled_loader)
+    # "labeled" mode keeps v2's original endless pseudo cycle; "cover_pseudo" restarts the
+    # pseudo loader each epoch so every pseudo batch is used exactly once per epoch.
+    pseudo_iter = _infinite_cycle(pseudo_loader) if use_pseudo and epoch_mode == "labeled" else None
     best_val_f1 = -1.0
     history: list[dict] = []
     global_step = 0
@@ -261,24 +324,29 @@ def train(
         detector.train()
         epoch_loss = epoch_sup = epoch_pseudo = 0.0
         n_batches = 0
+        n_pseudo_steps = 0  # in cover_pseudo mode some steps carry no pseudo batch
         optimizer.zero_grad()
         t_epoch = time.time()
 
-        train_iter = tqdm(labeled_loader, desc=f"train epoch {epoch}/{max_epochs}", unit="batch", leave=False, dynamic_ncols=True)
-        for labeled_batch in train_iter:
+        if use_pseudo and epoch_mode == "cover_pseudo":
+            pseudo_iter = iter(pseudo_loader)
+        train_iter = tqdm(range(batches_per_epoch), desc=f"train epoch {epoch}/{max_epochs}", unit="batch", leave=False, dynamic_ncols=True)
+        for step_in_epoch in train_iter:
+            labeled_batch = next(labeled_iter)
             input_ids, attention_mask, token_type_ids = _to_device(labeled_batch, device)
             labels = labeled_batch["label"].to(device)
             lam = detector.get_lambda(global_step, total_steps)
+            n_pseudo_now = pseudo_schedule[step_in_epoch]
 
             with torch.amp.autocast(device_type=device.type, enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
                 labeled_logits = detector.forward_reasoning(input_ids, attention_mask, token_type_ids)
-                if use_pseudo:
-                    pseudo_batches = [next(pseudo_iter) for _ in range(pseudo_ratio)]
-                    p_ids = torch.cat([b["input_ids"] for b in pseudo_batches]).to(device)
-                    p_mask = torch.cat([b["attention_mask"] for b in pseudo_batches]).to(device)
-                    p_tt = torch.cat([b["token_type_ids"] for b in pseudo_batches]).to(device)
-                    p_labels = torch.cat([b["label"] for b in pseudo_batches]).to(device)
-                    p_weights = torch.cat([b["weight"] for b in pseudo_batches]).to(device).float()
+                if n_pseudo_now > 0:
+                    pseudo = _concat_batches([next(pseudo_iter) for _ in range(n_pseudo_now)], pad_token_id)
+                    p_ids = pseudo["input_ids"].to(device)
+                    p_mask = pseudo["attention_mask"].to(device)
+                    p_tt = pseudo["token_type_ids"].to(device)
+                    p_labels = pseudo["label"].to(device)
+                    p_weights = pseudo["weight"].to(device).float()
                     # v2: same claim+evidence input and same channel as evaluation.
                     pseudo_logits = detector.forward_reasoning(p_ids, p_mask, p_tt)
                     loss_dict = detector.compute_joint_loss(
@@ -311,7 +379,9 @@ def train(
 
             epoch_loss += float(loss_dict["total"].item())
             epoch_sup += float(loss_dict["supervised"].item())
-            epoch_pseudo += float(loss_dict["pseudo"].item())
+            if n_pseudo_now > 0:
+                epoch_pseudo += float(loss_dict["pseudo"].item())
+                n_pseudo_steps += 1
             n_batches += 1
             if n_batches % 10 == 0:
                 train_iter.set_postfix(loss=f"{epoch_loss / n_batches:.4f}", lam=f"{lam:.3f}", step=global_step)
@@ -322,9 +392,10 @@ def train(
             optimizer_step()
 
         denom = max(n_batches, 1)
+        pseudo_denom = max(n_pseudo_steps, 1)
         log.info(
-            "Epoch %d/%d loss=%.4f (sup=%.4f pseudo=%.4f) time=%.1fs step=%d",
-            epoch, max_epochs, epoch_loss / denom, epoch_sup / denom, epoch_pseudo / denom,
+            "Epoch %d/%d loss=%.4f (sup=%.4f pseudo=%.4f over %d steps) time=%.1fs step=%d",
+            epoch, max_epochs, epoch_loss / denom, epoch_sup / denom, epoch_pseudo / pseudo_denom, n_pseudo_steps,
             time.time() - t_epoch, global_step,
         )
 
@@ -333,8 +404,9 @@ def train(
             "epoch": epoch,
             "train_loss": epoch_loss / denom,
             "train_sup_loss": epoch_sup / denom,
-            "train_pseudo_loss": epoch_pseudo / denom,
+            "train_pseudo_loss": epoch_pseudo / pseudo_denom,
             "lambda": detector.get_lambda(global_step, total_steps),
+            "global_step": global_step,
             **{f"val_{k}": v for k, v in val_metrics.items()},
         })
 
@@ -382,7 +454,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Phase 4 (v2): train the detector for one ablation method.")
     parser.add_argument("--config", type=str, default="configs/config.yaml")
     parser.add_argument("--run_dir", type=str, required=True)
-    parser.add_argument("--method", type=str, required=True, choices=["A", "B", "W", "R", "C", "O"])
+    parser.add_argument("--method", type=str, required=True, choices=["A", "B", "L", "Q", "K", "W", "R", "C", "O"])
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--keep_checkpoint", action="store_true", help="Keep best_model.pt after evaluation.")
@@ -434,9 +506,13 @@ def main() -> None:
         "persistent_workers": num_workers > 0,
     }
 
-    train_dataset = ClaimEvidenceDataset(str(train_path), tokenizer, max_length=max_length)
-    dev_dataset = ClaimEvidenceDataset(str(dev_path), tokenizer, max_length=max_length)
-    test_dataset = ClaimEvidenceDataset(str(test_path), tokenizer, max_length=max_length)
+    dynamic_padding = bool(train_cfg.get("dynamic_padding", False))
+    if dynamic_padding:
+        loader_kwargs["collate_fn"] = DynamicPaddingCollator(tokenizer.pad_token_id)
+    ds_kwargs = {"max_length": max_length, "dynamic_padding": dynamic_padding}
+    train_dataset = ClaimEvidenceDataset(str(train_path), tokenizer, **ds_kwargs)
+    dev_dataset = ClaimEvidenceDataset(str(dev_path), tokenizer, **ds_kwargs)
+    test_dataset = ClaimEvidenceDataset(str(test_path), tokenizer, **ds_kwargs)
 
     labeled_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, **loader_kwargs)
     val_loader = DataLoader(dev_dataset, batch_size=batch_size * 2, shuffle=False, **loader_kwargs)
@@ -446,7 +522,7 @@ def main() -> None:
     pseudo_loader = None
     pseudo_size = 0
     if pseudo_path is not None:
-        pseudo_dataset = ClaimEvidenceDataset(str(pseudo_path), tokenizer, max_length=max_length)
+        pseudo_dataset = ClaimEvidenceDataset(str(pseudo_path), tokenizer, **ds_kwargs)
         pseudo_size = len(pseudo_dataset)
         if pseudo_size == 0:
             # Can legitimately happen (e.g. no sample clears the confidence threshold
@@ -493,6 +569,7 @@ def main() -> None:
         ckpt_path=ckpt_path,
         labeled_class_weights=compute_class_weights(str(train_path)),
         labeled_class_priors=compute_class_priors(str(train_path)),
+        pad_token_id=tokenizer.pad_token_id,
     )
 
     out_dir = paths.detector_outputs(args.method)
@@ -519,6 +596,8 @@ def main() -> None:
         "pseudo_set": str(pseudo_path) if pseudo_path else None,
         "pseudo_size": pseudo_size,
         "labeled_size": len(train_dataset),
+        "epoch_mode": str(train_cfg.get("epoch_mode", "labeled")),
+        "total_optimizer_steps": history[-1]["global_step"] if history else 0,
         **test_metrics,
     }
     with open(out_dir / "test_results.json", "w", encoding="utf-8") as fh:

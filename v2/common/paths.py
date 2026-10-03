@@ -88,6 +88,9 @@ class RunPaths:
         mapping = {
             "A": None,
             "B": self.pseudo / "set_B_confidence.jsonl",
+            "L": self.pseudo / "set_L_conf_logic.jsonl",
+            "Q": self.pseudo / "set_Q_conf_logic_quantile.jsonl",
+            "K": self.pseudo / "set_K_conf_topk.jsonl",
             "W": self.pseudo / "set_W_weighted.jsonl",
             "R": self.pseudo / "set_R_random.jsonl",
             "C": self.rl_selected,

@@ -35,17 +35,20 @@ sys.path.insert(0, str(V2_ROOT))
 from common.paths import cfg_path, load_config  # noqa: E402
 
 RUN_PATTERN = re.compile(r"^r(?P<ratio>[0-9.]+)_s(?P<seed>\d+)$")
-METHOD_ORDER = ["A", "B", "W", "R", "C", "O"]
+METHOD_ORDER = ["A", "B", "L", "Q", "K", "W", "R", "C", "O"]
 METHOD_NAMES = {
     "A": "A supervised only",
     "B": "B confidence threshold",
+    "L": "L confidence + NLI direction (B+L)",
+    "Q": "Q confidence + per-class c quantile (L-q)",
+    "K": "K top-|Q| by confidence (size control)",
     "W": "W weighted filter (no RL)",
     "R": "R random (size of C)",
     "C": "C full model (RL)",
     "O": "O oracle (gold labels)",
 }
 # (method, reference) pairs tested with paired bootstrap
-COMPARISONS = [("B", "A"), ("W", "A"), ("R", "A"), ("C", "A"), ("O", "A"), ("C", "R"), ("C", "B"), ("C", "W")]
+COMPARISONS = [("B", "A"), ("L", "A"), ("L", "B"), ("Q", "A"), ("K", "A"), ("Q", "K"), ("Q", "B"), ("W", "A"), ("R", "A"), ("C", "A"), ("O", "A"), ("C", "R"), ("C", "B"), ("C", "W")]
 
 
 def load_predictions(path: Path) -> dict[str, tuple[int, int]]:

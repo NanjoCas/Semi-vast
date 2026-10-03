@@ -22,6 +22,7 @@ processed/
 *.csv
 *.tsv
 *.jsonl
+*.npz
 
 # outputs/ holds lightweight training records (metrics json, plots) and IS tracked
 

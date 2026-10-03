@@ -628,8 +628,13 @@ def main() -> None:
         weight_decay=0.05,  # 增加 weight_decay 从 0.01 到 0.05 以增强正则化
     )
 
-    max_epochs: int = training_cfg.get("max_epochs", 10)
-    gradient_accumulation: int = training_cfg.get("gradient_accumulation", 4)
+    # Extractor-only overrides (default: the shared values). At a 10% label ratio the labeled
+    # set is a few hundred pairs, and the shared gradient_accumulation=4 leaves the extractor
+    # with only ~56 optimizer steps over 8 epochs.
+    max_epochs: int = int(training_cfg.get("extractor_max_epochs", training_cfg.get("max_epochs", 10)))
+    gradient_accumulation: int = int(
+        training_cfg.get("extractor_gradient_accumulation", training_cfg.get("gradient_accumulation", 4))
+    )
     use_text_augment = bool(training_cfg.get("extractor_text_augment", False))
     early_stopping_patience: int | None = training_cfg.get("early_stopping_patience", 5)  # 设置默认 patience 为 5 以防止过拟合
     max_grad_norm: float = 1.0

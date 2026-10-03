@@ -1,5 +1,7 @@
 # =============================================================================
-# Semi-vast v2 configuration
+# Semi-vast v2 configuration —— 数据集更换版（README 第 8 节）
+# Climate-FEVER + ClimateCheck + SciFact，不再使用 PUBHEALTH。
+# 与 config.yaml 的差异只在标注了 [sci] 的行。
 # 所有相对路径都相对于 v2/ 目录解析（见 common/paths.py）。
 # =============================================================================
 
@@ -7,10 +9,12 @@ paths:
   # ---- 原始数据（默认复用上一级项目的 Data/ 目录，不复制数据）----
   raw_climate_fever: ../Data/Climate Fever Dataset/archive/climate-fever.jsonl
   raw_pubhealth_dir: ../Data/PUBHEALTH-DATASET/archive
+  raw_climatecheck_dir: ../Data/ClimateCheck          # [sci] train/test parquet（测试集金标签已公开）
+  raw_scifact_dir: ../Data/SciFact/data               # [sci] claims_{train,dev}.jsonl + corpus.jsonl
   # ---- v2 生成物 ----
-  processed_dir: processed          # 修复泄漏后的 labeled/{train,dev,test}.jsonl
-  runs_dir: runs                    # 每个 (label_ratio, seed) 一个子目录
-  results_dir: results              # 汇总表格与图
+  processed_dir: processed/sci      # [sci] 与 PUBHEALTH 版的 processed/labeled 分开
+  runs_dir: runs_sci                # [sci]
+  results_dir: results_sci          # [sci]
   model_cache_dir: ../model_cache   # 与原项目共用 HF 模型缓存
 
 use_local_models: false
@@ -21,11 +25,16 @@ models:
 
 # ---- 数据构建（data_prep/build_labeled.py）----
 data:
+  sources: [climate_fever, climatecheck, scifact]   # [sci] 默认 [climate_fever, pubhealth]
   split_seed: 42                    # Climate-FEVER 自行切分 train/dev/test 的种子
-  max_evidences: 3                  # 每条 claim 最多保留的证据句数
+  max_evidences: 5                  # [sci] Climate-FEVER 用全部 5 条候选证据（选 3 条会丢掉 9%–19% 的关键证据）
   max_evidence_words: 120           # 单条证据句截断长度（词）
   pubhealth_evidence: main_text     # main_text（推荐，无泄漏） | explanation（旧做法，有泄漏）
-  cf_oversample_labeled: 2          # 仅对"有标签训练部分"中的 Climate-FEVER 过采样；dev/test 不再重复
+  cf_oversample_labeled: 1          # [sci] 气候数据已有 ClimateCheck，不再过采样
+  dedup_claims: true                # [sci] Climate-FEVER 原始文件中同一 claim 有多个 id，会跨 split 泄漏；标签矛盾的整组丢弃
+  cf_disputed: drop                 # [sci] refutes（v2 原做法）| nei | drop：DISPUTED 证据有支持也有反驳，新数据集里没有对应类
+  dev_ratio: 0.15                   # [sci] ClimateCheck / SciFact 从官方 train 按 claim 切出 dev 的比例
+  cross_dedup_threshold: 0.5        # [sci] ClimateCheck 与 Climate-FEVER 改写 claim 的 TF-IDF 余弦阈值
 
 # ---- 实验矩阵（run_all.py）----
 experiment:
@@ -58,12 +67,12 @@ hyperparameters:
   lambda_final: 0.7
 
 imbalance:
-  apply_prior_adjust_in_pseudolabels: true
+  apply_prior_adjust_in_pseudolabels: false   # [sci] 第 7.2.1 节：校正降低伪标签准确率
   class_weight_power: 1.5
   extractor_sampler_power: 1.0
   normalize_class_weights: true
   pseudo_sampler_power: 1.0
-  use_balanced_extractor_sampler: true
+  use_balanced_extractor_sampler: false   # [sci] 已有类别权重，再加平衡采样会重复校正：REFUTES 只占 14% 时 extractor 全预测成 REFUTES/NEI（验证 F1 0.22）
   use_balanced_pseudo_sampler: true
 
 rl:
@@ -84,11 +93,11 @@ training:
   pseudo_batch_size: 16
   pseudo_ratio: 3                   # 每个有标签 batch 配几个伪标签 batch；伪标签现在是句对，显存不够时改成 1 或 2
   freeze_layers: 6
-  gradient_accumulation: 4
+  gradient_accumulation: 1          # [sci] 有标签部分只有 436 对：累积 4 时 extractor 和 A 组都只有 56 次参数更新，学不充分
   init_from_nli: true
   learning_rate: 1.0e-05
   max_epochs: 8
-  max_length: 384
+  max_length: 512                   # [sci] 证据是整篇摘要：384 时约 30% 被截断，512 时 13%；64×512 显存峰值 12.5GB
   num_workers: 4
   seed: 42                          # 会被 run_all.py 的 --seed 覆盖
   use_bf16: true

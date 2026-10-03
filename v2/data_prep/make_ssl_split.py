@@ -4,6 +4,8 @@ make_ssl_split.py
 把 processed/labeled/train.jsonl 按比例切成"有标签部分"和"无标签池"（标准半监督协议）。
 
 - 按 (source, label) 分层抽样，保证有标签部分的来源与类别分布和原 train 一致；
+- 按 claim 分组（记录的 "group" 字段）：ClimateCheck / SciFact 中同一 claim 的多个摘要
+  始终在同一侧；没有 group 的记录各自成组，结果与原来逐条抽样完全相同；
 - 无标签池保留 claim + evidence（与 dev/test 同格式），但去掉 label；
 - 金标签单独写到 unlabeled_gold.jsonl，只给 evaluation/ 和 Oracle 组使用，
   训练流程（extractor / 伪标签 / RL / detector）都不读取它；
@@ -30,18 +32,25 @@ from common.paths import RunPaths, labeled_split_path, load_config, run_dir  # n
 
 
 def stratified_split(records: list[dict], ratio: float, seed: int) -> tuple[list[dict], list[dict]]:
+    """Split claim groups, stratified by (source, majority label of the group)."""
     rng = random.Random(seed)
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+    by_group: dict[str, list[dict]] = defaultdict(list)
     for r in records:
-        groups[(r.get("source", "unknown"), r["label"])].append(r)
+        by_group[r.get("group", r["id"])].append(r)
+    cells: dict[tuple, list[list[dict]]] = defaultdict(list)
+    for members in by_group.values():
+        majority = Counter(m["label"] for m in members).most_common(1)[0][0]
+        cells[(members[0].get("source", "unknown"), majority)].append(members)
 
     labeled, unlabeled = [], []
-    for key in sorted(groups):
-        items = groups[key][:]
+    for key in sorted(cells):
+        items = cells[key][:]
         rng.shuffle(items)
-        n_keep = max(1, round(len(items) * ratio))  # every (source, label) cell keeps >= 1 example
-        labeled.extend(items[:n_keep])
-        unlabeled.extend(items[n_keep:])
+        n_keep = max(1, round(len(items) * ratio))  # every (source, label) cell keeps >= 1 group
+        for members in items[:n_keep]:
+            labeled.extend(members)
+        for members in items[n_keep:]:
+            unlabeled.extend(members)
     rng.shuffle(labeled)
     rng.shuffle(unlabeled)
     return labeled, unlabeled
@@ -80,7 +89,8 @@ def main() -> None:
     random.Random(args.seed).shuffle(labeled_out)
 
     pool = [
-        {"id": r["id"], "claim": r["claim"], "evidence": r["evidence"], "source": r.get("source", "unknown")}
+        {"id": r["id"], "group": r.get("group", r["id"]), "claim": r["claim"], "evidence": r["evidence"],
+         "source": r.get("source", "unknown")}
         for r in unlabeled
     ]
     gold = [{"id": r["id"], "label": r["label"]} for r in unlabeled]
@@ -94,10 +104,13 @@ def main() -> None:
         "seed": args.seed,
         "train_unique": len(records),
         "labeled_unique": len(labeled),
+        "labeled_groups": len({r.get("group", r["id"]) for r in labeled}),
+        "unlabeled_groups": len({r.get("group", r["id"]) for r in unlabeled}),
         "labeled_after_cf_oversample": len(labeled_out),
         "unlabeled_pool": len(pool),
         "labeled_label_dist": dict(Counter(r["label"] for r in labeled)),
         "labeled_source_dist": dict(Counter(r.get("source") for r in labeled)),
+        "unlabeled_source_dist": dict(Counter(r.get("source") for r in unlabeled)),
         "unlabeled_label_dist": dict(Counter(r["label"] for r in unlabeled)),
     }
     with open(paths.split_stats, "w", encoding="utf-8") as fh:

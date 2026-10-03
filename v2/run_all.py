@@ -8,8 +8,8 @@ run_all.py — v2 一键运行脚本
   2. train_extractor        只用有标签部分训练 extractor
   3. generate_pseudolabels  对无标签句对打伪标签，LogicScore 使用真实证据
   4. train_rl_selector      PPO 选择 → 方法 C
-  5. build_baseline_sets    方法 B / W / R / O 的伪标签集合
-  6. train_detector × 方法  A / B / W / R / C / O
+  5. build_baseline_sets    方法 B / L / Q / K / W / R / O 的伪标签集合
+  6. train_detector × 方法  A / B / L / Q / K / W / R / C / O
   7. pseudo_label_quality   用隐藏的金标签评估伪标签与选择质量
   8. 清理该 run 的 extractor / RL 权重（cleanup_checkpoints）
 最后：aggregate_results 汇总到 results/
@@ -43,7 +43,7 @@ ENV_EXTRA = {
     "TOKENIZERS_PARALLELISM": "false",
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
 }
-ALL_METHODS = ["A", "B", "W", "R", "C", "O"]
+ALL_METHODS = ["A", "B", "L", "Q", "K", "W", "R", "C", "O"]
 
 
 def _display(path: Path) -> str:
@@ -85,7 +85,7 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="configs/config.yaml")
     parser.add_argument("--ratios", type=str, default=None, help="Comma-separated, overrides experiment.label_ratios")
     parser.add_argument("--seeds", type=str, default=None, help="Comma-separated, overrides experiment.seeds")
-    parser.add_argument("--methods", type=str, default=None, help="Comma-separated subset of A,B,W,R,C,O")
+    parser.add_argument("--methods", type=str, default=None, help="Comma-separated subset of A,B,L,Q,K,W,R,C,O")
     parser.add_argument("--device", type=str, default=None, help="Overrides experiment.device")
     parser.add_argument("--force", action="store_true", help="Re-run steps even if their outputs exist")
     parser.add_argument("--rebuild_data", action="store_true", help="Re-run build_labeled even if processed data exists")
@@ -127,7 +127,7 @@ def main() -> None:
 
     needs_pseudo = any(m != "A" for m in methods)
     needs_rl = any(m in ("C", "R") for m in methods)
-    baseline_methods = [m for m in methods if m in ("B", "W", "R", "O")]
+    baseline_methods = [m for m in methods if m in ("B", "L", "Q", "K", "W", "R", "O")]
 
     for ratio in ratios:
         for seed in seeds:

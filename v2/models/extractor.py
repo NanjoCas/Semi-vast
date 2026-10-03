@@ -385,7 +385,7 @@ class TextualFeatureExtractor(nn.Module):
         # ── Logic scoring with the sample's own evidence as NLI premise ────
         # v1 passed "" as the premise, which saturates the NLI model and makes
         # |LogicScore| ~ 1.0 for most samples regardless of content.
-        max_evidences = int(getattr(unlabeled_dataset, "max_evidences", 3))
+        max_evidences = int(getattr(unlabeled_dataset, "max_evidences", 5))
         id_to_evidence: dict[str, str] = {}
         for rec in unlabeled_dataset.records:
             evidences = rec.get("evidence", []) or []

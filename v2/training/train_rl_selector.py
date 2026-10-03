@@ -115,7 +115,7 @@ def _extract_cls_embeddings(
     max_length: int = 512,
     batch_size: int = 32,
     evidence_sep: str = " [SEP] ",
-    max_evidences: int = 3,
+    max_evidences: int = 5,
     desc: str = "Extracting CLS embeddings",
     use_amp: bool = False,
     amp_dtype: torch.dtype = torch.bfloat16,

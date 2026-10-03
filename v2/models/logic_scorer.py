@@ -14,10 +14,10 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from tqdm import tqdm
 
 
-# NLI label order for cross-encoder/nli-deberta-v3-large
-# Index 0: contradiction, Index 1: neutral, Index 2: entailment
-_LABEL_CONTRADICTION = 0
-_LABEL_ENTAILMENT = 2
+# The NLI label order is read from the model config (see LogicScorer.__init__).
+# v1/v2 hard-coded entailment=2, but cross-encoder/nli-deberta-v3-large uses
+# {0: contradiction, 1: entailment, 2: neutral}, so the old score was
+# p_neutral - p_contradiction.
 
 
 class LogicScorer:
@@ -66,6 +66,12 @@ class LogicScorer:
         self.model.to(self.device)
         self.model.eval()
 
+        label2id = {str(v).lower(): int(k) for k, v in self.model.config.id2label.items()}
+        if "entailment" not in label2id or "contradiction" not in label2id:
+            raise ValueError(f"{model_name} has no entailment/contradiction labels: {self.model.config.id2label}")
+        self.idx_entailment = label2id["entailment"]
+        self.idx_contradiction = label2id["contradiction"]
+
     def score(self, claim: str, evidence: str) -> float:
         """
         Compute the LogicScore for a single claim-evidence pair.
@@ -94,7 +100,7 @@ class LogicScorer:
             logits = self.model(**inputs).logits
 
         probs = F.softmax(logits, dim=-1).squeeze(0)
-        logic_score = (probs[_LABEL_ENTAILMENT] - probs[_LABEL_CONTRADICTION]).item()
+        logic_score = (probs[self.idx_entailment] - probs[self.idx_contradiction]).item()
         return logic_score
 
     def score_batch(
@@ -135,7 +141,7 @@ class LogicScorer:
 
             probs = F.softmax(logits, dim=-1)
             scores = (
-                probs[:, _LABEL_ENTAILMENT] - probs[:, _LABEL_CONTRADICTION]
+                probs[:, self.idx_entailment] - probs[:, self.idx_contradiction]
             ).tolist()
             all_scores.extend(scores)
 
