@@ -1,0 +1,22 @@
+{
+  "ratio": 0.1,
+  "seed": 42,
+  "train_unique": 9775,
+  "labeled_unique": 977,
+  "labeled_after_cf_oversample": 1084,
+  "unlabeled_pool": 8798,
+  "labeled_label_dist": {
+    "SUPPORTS": 495,
+    "REFUTES": 289,
+    "NOT_ENOUGH_INFO": 193
+  },
+  "labeled_source_dist": {
+    "pubhealth": 870,
+    "climate_fever": 107
+  },
+  "unlabeled_label_dist": {
+    "SUPPORTS": 4453,
+    "REFUTES": 2604,
+    "NOT_ENOUGH_INFO": 1741
+  }
+}

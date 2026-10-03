@@ -1,0 +1,36 @@
+{
+  "B": {
+    "threshold": 0.7,
+    "size": 2416,
+    "labels": {
+      "SUPPORTS": 1228,
+      "REFUTES": 119,
+      "NOT_ENOUGH_INFO": 1069
+    }
+  },
+  "W": {
+    "size": 6307,
+    "labels": {
+      "SUPPORTS": 2510,
+      "REFUTES": 1827,
+      "NOT_ENOUGH_INFO": 1970
+    }
+  },
+  "R": {
+    "size": 316,
+    "matched_to_C": 316,
+    "labels": {
+      "SUPPORTS": 113,
+      "REFUTES": 84,
+      "NOT_ENOUGH_INFO": 119
+    }
+  },
+  "O": {
+    "size": 8798,
+    "labels": {
+      "SUPPORTS": 4453,
+      "REFUTES": 2604,
+      "NOT_ENOUGH_INFO": 1741
+    }
+  }
+}

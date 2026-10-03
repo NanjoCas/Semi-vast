@@ -1,0 +1,19 @@
+{
+  "run": "r0.10_s44",
+  "method": "B",
+  "seed": 44,
+  "best_epoch": 7,
+  "best_val": {
+    "accuracy": 0.6126482213438735,
+    "macro_f1": 0.5782718709985046,
+    "auc": 0.7626069708316651
+  },
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v2/runs_sci/r0.10_s44/pseudo/set_B_confidence.jsonl",
+  "pseudo_size": 1212,
+  "labeled_size": 433,
+  "epoch_mode": "cover_pseudo",
+  "total_optimizer_steps": 224,
+  "accuracy": 0.5861645517805977,
+  "macro_f1": 0.5751911540203123,
+  "auc": 0.7575132432967356
+}

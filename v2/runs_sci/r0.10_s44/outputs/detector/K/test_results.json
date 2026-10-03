@@ -1,0 +1,19 @@
+{
+  "run": "r0.10_s44",
+  "method": "K",
+  "seed": 44,
+  "best_epoch": 6,
+  "best_val": {
+    "accuracy": 0.5401844532279315,
+    "macro_f1": 0.518913604792104,
+    "auc": 0.7013410644607356
+  },
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v2/runs_sci/r0.10_s44/pseudo/set_K_conf_topk.jsonl",
+  "pseudo_size": 673,
+  "labeled_size": 433,
+  "epoch_mode": "cover_pseudo",
+  "total_optimizer_steps": 224,
+  "accuracy": 0.5349979533360623,
+  "macro_f1": 0.5227815287849383,
+  "auc": 0.7010037317831083
+}

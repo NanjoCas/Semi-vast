@@ -1,0 +1,17 @@
+{
+  "run": "r0.10_s42",
+  "method": "R",
+  "seed": 42,
+  "best_epoch": 4,
+  "best_val": {
+    "accuracy": 0.5957120980091883,
+    "macro_f1": 0.5663048093719619,
+    "auc": 0.7857678596631082
+  },
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v2/runs/r0.10_s42/pseudo/set_R_random.jsonl",
+  "pseudo_size": 316,
+  "labeled_size": 1084,
+  "accuracy": 0.5722937168811506,
+  "macro_f1": 0.5510996413912365,
+  "auc": 0.7532414166896054
+}

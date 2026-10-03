@@ -1,0 +1,19 @@
+{
+  "run": "r0.10_s44",
+  "method": "Q",
+  "seed": 44,
+  "best_epoch": 8,
+  "best_val": {
+    "accuracy": 0.5586297760210803,
+    "macro_f1": 0.5234790393270008,
+    "auc": 0.7200265027295195
+  },
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v2/runs_sci/r0.10_s44/pseudo/set_Q_conf_logic_quantile.jsonl",
+  "pseudo_size": 673,
+  "labeled_size": 433,
+  "epoch_mode": "cover_pseudo",
+  "total_optimizer_steps": 224,
+  "accuracy": 0.5337699549733934,
+  "macro_f1": 0.5158400886554871,
+  "auc": 0.7168337187648892
+}

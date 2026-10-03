@@ -1,0 +1,17 @@
+{
+  "run": "r0.10_s42",
+  "method": "A",
+  "seed": 42,
+  "best_epoch": 6,
+  "best_val": {
+    "accuracy": 0.6294027565084227,
+    "macro_f1": 0.588473182675025,
+    "auc": 0.8127978229508163
+  },
+  "pseudo_set": null,
+  "pseudo_size": 0,
+  "labeled_size": 1084,
+  "accuracy": 0.5957607872823618,
+  "macro_f1": 0.5627159256151425,
+  "auc": 0.7834691822222514
+}

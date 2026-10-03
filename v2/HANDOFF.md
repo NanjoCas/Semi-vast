@@ -14,7 +14,9 @@
   - B − A 在 3 个 seed 上都显著，平均 +0.118；O − A 平均 +0.213；
   - L − B 为 −0.128 / +0.002 / +0.032，**L > B 不成立**。L 的伪标签质量更高，但集合只有 B 的 40%–56%。
 - c 的设计分析（README 8.6）：c 在 SUPPORTS/REFUTES 类内有效（优于置信度），对 NEI 无效；问题出在固定阈值 c > 0.3 的用法上。
-- **进行中**：项目负责人已确认采用 L-q。方法 Q（L-q）和 K（同规模置信度对照）已实现，ratio 0.1 × 3 seed 正在运行（`logs/sci_QK_r0.10_s42-44.log`）。
+- 方法 Q（L-q）和 K（同规模置信度对照）已跑完 3 个 seed（README 8.5）：Q − K 为 +0.035* / −0.007 / −0.007，平均 +0.007。伪标签层面 Q 比 K 准 0.03–0.07，但没有转化为 detector 的提升。
+- **新问题（README 8.7）**：小集合组只有 224–296 次参数更新，验证 F1 起飞的时间随机，几乎相同的伪标签集合测试 F1 可以相差 0.1–0.16（seed 42：L ⊂ Q，0.368 vs 0.528）。detector 层面的组间比较被训练噪声掩盖。
+- **下一步（待项目负责人决定）**：统一并加大 detector 的训练预算（所有组相同的总参数更新次数），再重跑 A / B / Q / K。
 
 ## 1. 项目与环境
 
@@ -157,15 +159,16 @@ kill <PID>                                      # 数据加载子进程可能要
 
 ## 7. 下一步（按优先级）
 
-1. **改进 L（已确认采用 L-q，Q / K 已实现，运行中；README 8.5、8.6）**：
+1. **修正 detector 训练预算（待决定，README 8.7）**：在 `train_detector.py` 中增加按总参数更新次数训练的选项（例如所有组都用约 640 次，与 O 相同），或增加 `max_epochs` 并配合早停；然后重跑 A / B / Q / K × 3 seed（约 3 小时）。可选：对 Q vs K 每个集合用多个训练 seed 重复。
+2. **（已完成）改进 L，README 8.5、8.6**：
    - 新方法 L-q：置信度 ≥ 0.7；SUPPORTS / REFUTES 各自在类内按 c 保留前 50%；NEI 不用 c；
    - 新增同规模置信度对照组：按置信度取前 N 条，N 与 L-q 相同；
    - 实现方式与 L 相同：`build_baseline_sets.py`、`paths.py`、`run_all.py`、`train_detector.py`、`aggregate_results.py`、`pseudo_label_quality.py`；
    - 伪标签池已有，只需重跑 detector：2 组 × 3 个 seed，约 1 小时。
    - 备选方案：extractor 与 NLI 概率融合（α = 0.3），会改动伪标签本身。
-2. **复合权重**：把 |LogicScore| 换成 c（c 可能为负，需要截断到 [0, 1]），去掉 Discourse（`hyperparameters.beta3: 0`），重新设定 `experiment.weight_threshold`，再跑 W。根据 8.6，c 对 NEI 无效，NEI 的权重可能也应只用置信度。
-3. **RL 重新设计**：奖励中的 0.3·mean|LogicScore| 修正后仍几乎是常数（0.224 ± 0.006，ΔF1 项只有 ±0.007），应去掉或换成 c；状态中加入伪标签类别和 c；加大 `episode_size`；取消 `min_keep_ratio` 补齐。
-4. 确定配置后跑完整矩阵（`label_ratios` × 至少 3 个 seed）。seed 间方差大（B 的标准差 0.066），可能需要 5 个 seed。
+3. **复合权重**：把 |LogicScore| 换成 c（c 可能为负，需要截断到 [0, 1]），去掉 Discourse（`hyperparameters.beta3: 0`），重新设定 `experiment.weight_threshold`，再跑 W。根据 8.6，c 对 NEI 无效，NEI 的权重可能也应只用置信度。
+4. **RL 重新设计**：奖励中的 0.3·mean|LogicScore| 修正后仍几乎是常数（0.224 ± 0.006，ΔF1 项只有 ±0.007），应去掉或换成 c；状态中加入伪标签类别和 c；加大 `episode_size`；取消 `min_keep_ratio` 补齐。
+5. 确定配置后跑完整矩阵（`label_ratios` × 至少 3 个 seed）。seed 间方差大（B 的标准差 0.066），可能需要 5 个 seed。
 
 ## 8. 待决问题（需要项目负责人决定）
 

@@ -1,0 +1,49 @@
+{
+  "B": {
+    "threshold": 0.7,
+    "size": 1212,
+    "labels": {
+      "SUPPORTS": 575,
+      "REFUTES": 504,
+      "NOT_ENOUGH_INFO": 133
+    }
+  },
+  "L": {
+    "confidence_threshold": 0.7,
+    "consistency_threshold": 0.3,
+    "size": 558,
+    "labels": {
+      "SUPPORTS": 114,
+      "REFUTES": 320,
+      "NOT_ENOUGH_INFO": 124
+    }
+  },
+  "O": {
+    "size": 3856,
+    "labels": {
+      "SUPPORTS": 1751,
+      "REFUTES": 634,
+      "NOT_ENOUGH_INFO": 1471
+    }
+  },
+  "Q": {
+    "confidence_threshold": 0.7,
+    "consistency_quantile": 0.5,
+    "size": 673,
+    "labels": {
+      "SUPPORTS": 288,
+      "REFUTES": 252,
+      "NOT_ENOUGH_INFO": 133
+    }
+  },
+  "K": {
+    "size": 673,
+    "matched_to_Q": 673,
+    "min_confidence": 0.7548,
+    "labels": {
+      "SUPPORTS": 151,
+      "REFUTES": 463,
+      "NOT_ENOUGH_INFO": 59
+    }
+  }
+}

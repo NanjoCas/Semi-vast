@@ -1,0 +1,17 @@
+{
+  "run": "r0.10_s42",
+  "method": "O",
+  "seed": 42,
+  "best_epoch": 6,
+  "best_val": {
+    "accuracy": 0.6408882082695253,
+    "macro_f1": 0.5963294651789844,
+    "auc": 0.8188129294158314
+  },
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v2/runs/r0.10_s42/pseudo/set_O_oracle.jsonl",
+  "pseudo_size": 8798,
+  "labeled_size": 1084,
+  "accuracy": 0.5957607872823618,
+  "macro_f1": 0.5607166389373127,
+  "auc": 0.7886930185479208
+}
