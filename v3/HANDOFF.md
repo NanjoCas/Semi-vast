@@ -14,7 +14,7 @@
   - 自动检查与配置指纹；
   - 跨 seed 分层 bootstrap 与事先确定的判据。
 - **下一步**：第一阶段试跑（`run_pilot.sh`，seed 42，约 1.5 小时），看 C1–C5 是否全部通过（README_v3 5.2）。
-- v3 目录**还没有提交到 git**（分支 `v2-data-design`，最近的提交是 `69a4519`）。
+- v3 已提交到 git 分支 **`v3-training-protocol`**（基于 `v2-data-design` 的 `69a4519`，包含 v2 的代码与结果两次提交）；远程仓库 `github.com/NanjoCas/Semi-vast`。服务器上没有 GitHub 凭据，推送需要在自己的终端完成（第 8 节）。
 
 ## 1. 项目与环境
 
@@ -113,7 +113,7 @@ bash logs/watch.sh
   - 论文中是否报告只看 claim 的基线；
   - 是否增加其他测试集；
   - RL（C 组）是否保留，等 H2 的结论再定。
-- v3 目录何时提交到 git，以及结果文件是否一起提交（v2 的做法是代码与结果分两次提交，`runs*/` 下的 json 和 png 会被跟踪）。
+- v3 的结果文件何时提交（v2 的做法是代码与结果分两次提交，`runs/`、`results/` 下的 json 和 png 会被跟踪）。
 
 ## 8. 已知的坑
 
@@ -125,3 +125,4 @@ bash logs/watch.sh
 - 显存：梯度检查点不能关（关闭后 64 条 × 256 token 即 OOM）。
 - 主机负载高时（load average 25–33）每步耗时会翻倍，checkpoint 写盘也会变慢；v3 已不再反复写盘。
 - v2 的分析脚本（`../v2/analysis/`）硬编码了 v2 的路径，没有复制到 v3；v3 的汇总都在 `evaluation/aggregate_results.py` 中。
+- git：服务器上没有 GitHub 凭据（没有 token、SSH 私钥或凭据助手），`git push` 会报 `could not read Username`。在 VS Code 的终端里执行 `git push -u origin v3-training-protocol`（密码处填 GitHub Personal Access Token），或用 VS Code 源代码管理面板的"发布分支"。服务器上 git 没有配置作者身份，之前的提交都用 `git -c user.name=... -c user.email=...` 沿用上一个提交的作者。
