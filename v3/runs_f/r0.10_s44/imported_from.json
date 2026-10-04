@@ -1,0 +1,23 @@
+{
+  "source_run": "/root/autodl-tmp/Semi-vast/v2/runs_sci/r0.10_s44",
+  "source_config": "/root/autodl-tmp/Semi-vast/v2/configs/config_sci.yaml",
+  "imported": "2026-10-04 19:42:58",
+  "files": {
+    "data/labeled_train.jsonl": "f88f85d4e97cc8de613f9545948cb771",
+    "data/unlabeled_pool.jsonl": "60c119371af43d810a25683feab6ee82",
+    "data/unlabeled_gold.jsonl": "3cbef2bfa642eb4d106e882c20b3f776",
+    "data/split_stats.json": "5def86626bd726251ada6bc8a8630a8e",
+    "pseudo/pseudo_pool.jsonl": "8d364b09bb4a7f646b6768fb38d7a331",
+    "pseudo/pseudo_filtered.jsonl": "21c8969dfa5fd727de5d0d61cb108a2e",
+    "pseudo/pseudo_stats.json": "64ef446bf5bd53fadefe510e9a02ff72",
+    "outputs/extractor/extractor_train_metrics.json": "982922ea4486fb230296b69825c4c83c",
+    "outputs/extractor/extractor_training_curves.pdf": "ceef1ff5866cf60a2c619a81f0afd371",
+    "outputs/extractor/extractor_training_curves.png": "0a1d553d9dac8575ea8b7defa78144e2",
+    "outputs/extractor/extractor_val_confusion_matrix.pdf": "23adba177d06a346ee47d2aba80b3f6a",
+    "outputs/extractor/extractor_val_confusion_matrix.png": "2268df1008890ed80dc9487b24141adb",
+    "outputs/extractor/extractor_val_per_class_f1.pdf": "db799df7b40cab8b8c03d7b95b2b6492",
+    "outputs/extractor/extractor_val_per_class_f1.png": "87e859688812135eee4fb3f7055974a6"
+  },
+  "labeled": 433,
+  "unlabeled_pool": 3856
+}

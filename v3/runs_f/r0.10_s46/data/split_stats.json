@@ -1,0 +1,30 @@
+{
+  "ratio": 0.1,
+  "seed": 46,
+  "train_unique": 4289,
+  "labeled_unique": 409,
+  "labeled_groups": 226,
+  "unlabeled_groups": 2043,
+  "labeled_after_cf_oversample": 409,
+  "unlabeled_pool": 3880,
+  "labeled_label_dist": {
+    "SUPPORTS": 193,
+    "NOT_ENOUGH_INFO": 145,
+    "REFUTES": 71
+  },
+  "labeled_source_dist": {
+    "climate_fever": 93,
+    "climatecheck": 237,
+    "scifact": 79
+  },
+  "unlabeled_source_dist": {
+    "climatecheck": 2327,
+    "scifact": 711,
+    "climate_fever": 842
+  },
+  "unlabeled_label_dist": {
+    "SUPPORTS": 1754,
+    "NOT_ENOUGH_INFO": 1495,
+    "REFUTES": 631
+  }
+}

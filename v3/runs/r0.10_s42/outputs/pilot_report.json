@@ -1,0 +1,31 @@
+{
+  "run": "r0.10_s42",
+  "passed": false,
+  "criteria": [
+    {
+      "id": "C1",
+      "status": "PASS",
+      "detail": "全部收敛"
+    },
+    {
+      "id": "C2",
+      "status": "PASS",
+      "detail": "A: |Δ| = 0.0040 / B: |Δ| = 0.0118（阈值 0.02）"
+    },
+    {
+      "id": "C3",
+      "status": "PASS",
+      "detail": "A 最佳验证 F1 0.5426 vs extractor 0.4727"
+    },
+    {
+      "id": "C4",
+      "status": "FAIL",
+      "detail": "O − A = +0.0986（阈值 0.1）"
+    },
+    {
+      "id": "C5",
+      "status": "FAIL",
+      "detail": "预测/金标签：{'A_t1042': ['REFUTES 143/372']}"
+    }
+  ]
+}

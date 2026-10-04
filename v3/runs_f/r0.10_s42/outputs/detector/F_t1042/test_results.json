@@ -1,0 +1,42 @@
+{
+  "run": "r0.10_s42",
+  "method": "F",
+  "tag": "F_t1042",
+  "seed": 42,
+  "train_seed": 1042,
+  "config_fingerprint": "4342c1690f11",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 360,
+  "best_val": {
+    "accuracy": 0.5902503293807642,
+    "macro_f1": 0.5787791377714052,
+    "auc": 0.7340561408952165
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v3/runs_f/r0.10_s42/pseudo/set_F_fused_top.jsonl",
+  "pseudo_size": 1156,
+  "pseudo_label_counts": [
+    189,
+    196,
+    771
+  ],
+  "labeled_size": 436,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    776,
+    271,
+    1396
+  ],
+  "train_minutes": 22.4,
+  "accuracy": 0.566516577977896,
+  "macro_f1": 0.5443042386995117,
+  "auc": 0.7064747537848732
+}

@@ -1,0 +1,42 @@
+{
+  "run": "r0.10_s44",
+  "config_fingerprint": "4342c1690f11",
+  "checks": [
+    {
+      "id": "S1",
+      "status": "ok",
+      "detail": "所有 detector 都是 640 步"
+    },
+    {
+      "id": "S2",
+      "status": "ok",
+      "detail": "所有 detector 的最佳验证点都在训练结束之前"
+    },
+    {
+      "id": "S3",
+      "status": "ok",
+      "detail": "没有类别塌缩"
+    },
+    {
+      "id": "S4",
+      "status": "skip",
+      "detail": "Q 或 K 的集合不存在"
+    },
+    {
+      "id": "S5",
+      "status": "ok",
+      "detail": "所有结果的配置指纹都是 4342c1690f11"
+    },
+    {
+      "id": "S6",
+      "status": "ok",
+      "detail": "|B| = |F| = 1157 = round(0.3 × 3856)"
+    },
+    {
+      "id": "S7",
+      "status": "ok",
+      "detail": "detector 结果与当前伪标签集合一致"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,42 @@
+{
+  "run": "r0.10_s42",
+  "method": "O",
+  "tag": "O",
+  "seed": 42,
+  "train_seed": 42,
+  "config_fingerprint": "1f0a3098ce46",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 280,
+  "best_val": {
+    "accuracy": 0.6337285902503293,
+    "macro_f1": 0.6097167494223322,
+    "auc": 0.770989282955898
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v3/runs/r0.10_s42/pseudo/set_O_oracle.jsonl",
+  "pseudo_size": 3853,
+  "pseudo_label_counts": [
+    1742,
+    639,
+    1472
+  ],
+  "labeled_size": 436,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1184,
+    358,
+    901
+  ],
+  "train_minutes": 22.5,
+  "accuracy": 0.6258698321735571,
+  "macro_f1": 0.6154323943572012,
+  "auc": 0.7663117188036702
+}

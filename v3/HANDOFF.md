@@ -1,10 +1,10 @@
 # Semi-vast v3 交接文档
 
-> 更新于 2026-10-04。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。
+> 更新于 2026-10-04 17:30（试跑完成）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。
 
 ## 0. 现状
 
-- **v3 代码已完成，并通过离线检查（第 3 节）；还没有运行任何训练，也没有生成任何结果。**
+- **v3 代码已完成，并通过离线检查（第 3 节）；第一阶段试跑已运行（结果见下）。**
 - v3 按项目负责人确认的推荐方案（v2 README 9.6）实现了 M1–M8：
   - detector 与 extractor 同样从 NLI 模型初始化、冻结前 6 层；
   - 所有组固定 640 步，每 40 步评估一次；
@@ -13,8 +13,12 @@
   - 最佳权重存内存，可以换训练 seed 重复训练；
   - 自动检查与配置指纹；
   - 跨 seed 分层 bootstrap 与事先确定的判据。
-- **下一步**：第一阶段试跑（`run_pilot.sh`，seed 42，约 1.5 小时），看 C1–C5 是否全部通过（README_v3 5.2）。
-- v3 已提交到 git 分支 **`v3-training-protocol`**（基于 `v2-data-design` 的 `69a4519`，包含 v2 的代码与结果两次提交）；远程仓库 `github.com/NanjoCas/Semi-vast`。服务器上没有 GitHub 凭据，推送需要在自己的终端完成（第 8 节）。
+- **试跑已完成（2026-10-04 15:56–17:23，`logs/pilot.log`）：未通过**。C1–C3 通过；C4 O − A = +0.0986（阈值 0.10）；C5 A_t1042 的 REFUTES 预测 143 / 372。分析与待决定事项见 README_v3 第 10 节，根本问题是 teacher（extractor 验证 F1 0.473）比 A（0.543）弱。
+- **方向一（2026-10-04）**：项目负责人选择重新讨论方向（README_v3 10.5），然后先做方向一（logic-aware teacher：extractor 与 NLI 融合，α = 0.5）。离线验证通过（10.6）；实现见 10.7（`configs/config_f.yaml`、方法 F、`runs_f/`、`results_f/`）。
+- **方向一试跑（18:09–19:37，`logs/pilot_f.log`）：未通过**。G1 ❌ F − A = +0.046 / +0.013（阈值 0.02）；G2 ✅ F − A⊕NLI = +0.074 / +0.058。F（0.550 / 0.544）高于同一划分下全部 4 个 A（0.504–0.532）。同一配置、同一 seed 的 A 也不能复现（差 0.013–0.019）。详见 README_v3 10.7.1。
+- **方向一主实验完成（2026-10-04 19:43 – 10-05 02:22，`logs/main_f.log`，`results_f/summary.md`）**：事先确定的检验全部成立。F1：F − A = +0.049，95% CI (+0.035, +0.062)，5/5 个 seed 为正；F2：F − B = +0.041；F3：F − A⊕NLI = +0.053。H1（B − A）+0.008 不成立。F 在三个来源上都提升，是最稳定的组。结果与限制见 README_v3 10.9。
+- **下一步（待项目负责人决定）**：ratio 0.25 / 0.5 的推广、α 敏感性分析、机制消融（例如"extractor 与 NLI 一致"过滤）；RL 是否保留。
+- v3 已提交到 git 分支 **`v3-training-protocol`**（基于 `v2-data-design` 的 `69a4519`，包含 v2 的代码与结果两次提交）；远程仓库 `github.com/NanjoCas/Semi-vast`。2026-10-05 又按 v2 的做法分两次提交：方向一的代码（"v3: direction 1 …"）和试跑 / 主实验的结果（"v3: add pilot and direction-1 results"，`runs/`、`runs_f/`、`results/`、`results_f/` 下的 json、png 与 md）。服务器上没有 GitHub 凭据，推送需要在自己的终端完成（第 8 节）。
 
 ## 1. 项目与环境
 
@@ -113,7 +117,6 @@ bash logs/watch.sh
   - 论文中是否报告只看 claim 的基线；
   - 是否增加其他测试集；
   - RL（C 组）是否保留，等 H2 的结论再定。
-- v3 的结果文件何时提交（v2 的做法是代码与结果分两次提交，`runs/`、`results/` 下的 json 和 png 会被跟踪）。
 
 ## 8. 已知的坑
 

@@ -1,0 +1,41 @@
+{
+  "run_dir": "/root/autodl-tmp/Semi-vast/v3/runs_f/r0.10_s46",
+  "weight_threshold": 0.4,
+  "score_weights": {
+    "beta1": 0.5,
+    "beta2": 0.3,
+    "beta3": 0.2
+  },
+  "prior_adjustment": {
+    "enabled": false,
+    "tau": 0.0,
+    "priors": null
+  },
+  "retention_rate": 0.3253,
+  "full_pool": {
+    "count": 3880,
+    "label_distribution": {
+      "SUPPORTS": 2183,
+      "REFUTES": 800,
+      "NOT_ENOUGH_INFO": 897
+    },
+    "avg_confidence": 0.5879,
+    "avg_logic_score": -0.0325,
+    "avg_abs_logic_score": 0.2709,
+    "avg_weight": 0.3919,
+    "avg_entropy": 0.8912
+  },
+  "filtered_pool": {
+    "count": 1262,
+    "label_distribution": {
+      "SUPPORTS": 446,
+      "REFUTES": 439,
+      "NOT_ENOUGH_INFO": 377
+    },
+    "avg_confidence": 0.6241,
+    "avg_logic_score": -0.1124,
+    "avg_abs_logic_score": 0.795,
+    "avg_weight": 0.5666,
+    "avg_entropy": 0.8484
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "run": "r0.10_s42",
+  "config_fingerprint": "1f0a3098ce46",
+  "checks": [
+    {
+      "id": "S1",
+      "status": "ok",
+      "detail": "所有 detector 都是 640 步"
+    },
+    {
+      "id": "S2",
+      "status": "ok",
+      "detail": "所有 detector 的最佳验证点都在训练结束之前"
+    },
+    {
+      "id": "S3",
+      "status": "warn",
+      "detail": "类别预测数低于金标签数的 50%（预测/金标签）：{'A_t1042': ['REFUTES 143/372']}"
+    },
+    {
+      "id": "S4",
+      "status": "skip",
+      "detail": "Q 或 K 的集合不存在"
+    },
+    {
+      "id": "S5",
+      "status": "ok",
+      "detail": "所有结果的配置指纹都是 1f0a3098ce46"
+    },
+    {
+      "id": "S6",
+      "status": "ok",
+      "detail": "|B| = 1156 = round(0.3 × 3853)"
+    },
+    {
+      "id": "S7",
+      "status": "ok",
+      "detail": "detector 结果与当前伪标签集合一致"
+    }
+  ],
+  "warnings": [
+    "S3 类别预测数低于金标签数的 50%（预测/金标签）：{'A_t1042': ['REFUTES 143/372']}"
+  ]
+}

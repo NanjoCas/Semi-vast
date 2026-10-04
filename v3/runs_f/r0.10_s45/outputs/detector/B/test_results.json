@@ -1,0 +1,42 @@
+{
+  "run": "r0.10_s45",
+  "method": "B",
+  "tag": "B",
+  "seed": 45,
+  "train_seed": 45,
+  "config_fingerprint": "4342c1690f11",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 520,
+  "best_val": {
+    "accuracy": 0.6034255599472991,
+    "macro_f1": 0.5569820440349894,
+    "auc": 0.7229081126431259
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v3/runs_f/r0.10_s45/pseudo/set_B_conf_top.jsonl",
+  "pseudo_size": 1167,
+  "pseudo_label_counts": [
+    833,
+    159,
+    175
+  ],
+  "labeled_size": 398,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1495,
+    263,
+    685
+  ],
+  "train_minutes": 22.5,
+  "accuracy": 0.5595579205894392,
+  "macro_f1": 0.5402217707959581,
+  "auc": 0.6940222908418289
+}

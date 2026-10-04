@@ -1,0 +1,38 @@
+{
+  "run": "r0.10_s42",
+  "method": "A",
+  "tag": "A_t1042",
+  "seed": 42,
+  "train_seed": 1042,
+  "config_fingerprint": "4342c1690f11",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 320,
+  "best_val": {
+    "accuracy": 0.5731225296442688,
+    "macro_f1": 0.5367700718750541,
+    "auc": 0.7140954980221309
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": null,
+  "pseudo_size": 0,
+  "pseudo_label_counts": null,
+  "labeled_size": 436,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1097,
+    191,
+    1155
+  ],
+  "train_minutes": 7.2,
+  "accuracy": 0.5599672533769955,
+  "macro_f1": 0.5317401566259964,
+  "auc": 0.6895117691779157
+}
