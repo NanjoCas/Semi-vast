@@ -9,7 +9,7 @@ tail -c 300000 -F "$LOG" 2>/dev/null | python -u -c '
 import codecs, os, re, shutil, sys
 KEEP = re.compile(r"^\[(STEP|DONE|FAIL|SKIP|PLAN|WARN|INFO\] \[|PROTOCOL|SANITY|import)\]?|SUCCESS|budget:|loss: sup|\[step \d+/\d+\]|New best|\[test\]"
                   r"|Training complete|\[Epoch \d+\] train_loss|set \w+ +accuracy|full pool accuracy|PASS|FAIL|结论|Traceback|Error")
-BAR = re.compile(r"^(train:|train epoch|Epoch \d+/\d+:|val@|val/|test:|Scoring batches|DeBERTa inference)")
+BAR = re.compile(r"^(train:|train epoch|Epoch \d+/\d+:|val@|val/|test:|Scoring batches|NLI batches|DeBERTa inference)")
 PREFIX = re.compile(r" \[INFO\] \w+ \| ")
 dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
 buf, bar = "", False

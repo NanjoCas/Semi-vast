@@ -1,0 +1,134 @@
+# =============================================================================
+# Semi-vast v3 方向一（logic-aware teacher，方法 F）配置（README_v3 10.6、10.7）
+# 与 configs/config.yaml 的差异只有两处，都标注了 [F]：
+#   1. 新增 teacher.nli_fusion_alpha（方法 F 的融合权重）；
+#   2. runs_dir / results_dir 换成 runs_f / results_f（新增设置改变了配置指纹）。
+# 其余设置（包括全部 [pool] 设置）与 config.yaml 完全相同，所以仍可导入 v2 的伪标签池。
+#
+# ---- 以下为 config.yaml 的原始说明 ----
+# Semi-vast v3 configuration（README_v3.md）
+# 数据：Climate-FEVER + ClimateCheck + SciFact（与 v2 configs/config_sci.yaml 相同）。
+# 与 v2 config_sci.yaml 的差异都标注了 [v3]；没有标注的设置与 v2 完全相同。
+#
+# ⚠️ 标注了 [pool] 的设置决定 SSL 划分、extractor 和伪标签池。改动它们后，
+#    tools/import_from_v2.py 会拒绝导入 v2 的伪标签池，所有 run 都要从 extractor 重新开始。
+# ⚠️ 改动任何影响结果的设置都会改变配置指纹：run_all.py 会拒绝在已有的 runs 目录里继续跑，
+#    请同时把 paths.runs_dir / paths.results_dir 换成新目录（README_v3 6.1）。
+#
+# 所有相对路径都相对于 v3/ 目录解析（见 common/paths.py）。
+# =============================================================================
+
+paths:
+  # ---- 原始数据（复用上一级项目的 Data/ 目录，不复制数据）----
+  raw_climate_fever: ../Data/Climate Fever Dataset/archive/climate-fever.jsonl
+  raw_pubhealth_dir: ../Data/PUBHEALTH-DATASET/archive          # 不再使用，保留以兼容 build_labeled.py
+  raw_climatecheck_dir: ../Data/ClimateCheck
+  raw_scifact_dir: ../Data/SciFact/data
+  # ---- v3 生成物 ----
+  processed_dir: processed          # [v3] processed/labeled/{train,dev,test}.jsonl（由 tools/import_from_v2.py 从 v2 复制）
+  runs_dir: runs_f                  # [F]
+  results_dir: results_f            # [F]
+  model_cache_dir: ../model_cache   # 与原项目共用 HF 模型缓存
+
+use_local_models: false
+
+models:                             # [pool]
+  deberta_base: microsoft/deberta-v3-large      # tokenizer 与 extractor 的结构
+  nli_model: cross-encoder/nli-deberta-v3-large # LogicScore；extractor 与 v3 detector 的初始权重
+
+# ---- 数据构建（data_prep/build_labeled.py）[pool] ----
+data:
+  sources: [climate_fever, climatecheck, scifact]
+  split_seed: 42                    # Climate-FEVER 自行切分 train/dev/test 的种子
+  max_evidences: 5                  # Climate-FEVER 用全部 5 条候选证据
+  max_evidence_words: 120           # 单条证据句截断长度（词）
+  pubhealth_evidence: main_text     # 不再使用
+  cf_oversample_labeled: 1          # 气候数据已有 ClimateCheck，不再过采样
+  dedup_claims: true                # Climate-FEVER 原始文件中同一 claim 有多个 id；标签矛盾的整组丢弃
+  cf_disputed: drop                 # refutes | nei | drop：DISPUTED 证据有支持也有反驳，新数据集里没有对应类
+  dev_ratio: 0.15                   # ClimateCheck / SciFact 从官方 train 按 claim 切出 dev 的比例
+  cross_dedup_threshold: 0.5        # ClimateCheck 与 Climate-FEVER 改写 claim 的 TF-IDF 余弦阈值
+
+# ---- 实验矩阵（run_all.py）----
+experiment:
+  label_ratios: [0.1]               # [v3] 主实验只跑 0.1；结论稳定后再用同一协议跑 0.25 / 0.5（README_v3 第 9 节）
+  seeds: [42, 43, 44, 45, 46]       # [v3] 5 个划分 seed；42–44 的伪标签池从 v2 导入
+  # A=纯监督  B=置信度前 30%  Q=B 内按 c 类内分位（L-q）  K=同规模置信度对照  O=金标签上界
+  # W / R / C 仍是 v2 的设计，尚未修订，不在默认列表中（README_v3 第 8 节）
+  methods: [A, B, F, O]             # [F] 方向一主实验的组（不影响配置指纹）
+  device: cuda
+  confidence_top_fraction: 0.3      # [v3] 方法 B：按置信度取池中前 30%（取代固定阈值 0.7；extractor 未校准，阈值下的规模在 seed 间相差 3.7 倍）
+  consistency_quantile: 0.5         # 方法 Q：在 B 内，SUPPORTS / REFUTES 各自按 c 保留前 50%，NEI 不用 c
+  weight_threshold: 0.4             # [pool] 复合权重过滤阈值（只影响 W / RL 的输入池 pseudo_filtered.jsonl）
+  cleanup_checkpoints: true         # 每个 run 结束后删除 extractor / RL 的 .pt；detector 的最佳权重只保存在内存中
+
+algorithm:
+  loss_type: ce                     # [v3] 监督损失：带类别权重的 CE（与 extractor 相同）；v2 为 focal + 反号 logit adjustment
+  logit_adjust_tau: 0.0             # [v3] 关闭；代码中的符号已修正为训练时 +τ·log π（Menon et al., 2021），需要时再开
+  focal_gamma: 2.0                  # 只在 loss_type: focal 时使用
+  pseudo_loss_type: ce              # 伪标签损失：CE（v3 不再对伪标签做 logit adjustment）
+  pseudo_weight_norm: mean          # mean: mean(w*L)  |  sum: sum(w*L)/sum(w)；B/Q/K/O 的权重都是 1，两者相同
+
+hyperparameters:
+  alpha: 0.7                        # RL 奖励（v2 设计）
+  beta: 0.3                         # RL 奖励（v2 设计）
+  beta1: 0.5                        # [pool] 复合权重：置信度
+  beta2: 0.3                        # [pool] 复合权重：|LogicScore|
+  beta3: 0.2                        # [pool] 复合权重：Discourse
+  epsilon: 0.2
+  lambda_init: 0.3                  # 伪标签损失权重 λ：在 detector_total_steps 内从 0.3 线性升到 0.7（各组相同）
+  lambda_final: 0.7
+
+imbalance:
+  apply_prior_adjust_in_pseudolabels: false   # [pool] 校正降低伪标签准确率（v2 README 7.2.1）
+  pseudolabel_prior_tau: 0.5        # [v3] 上一项开启时的 τ；v2 与 detector 损失共用 algorithm.logit_adjust_tau，现已分开
+  class_weight_power: 1.5           # [pool] 类别权重 (N / (K·n_c))^1.5，归一化到均值 1；v3 中 extractor 与 detector 共用
+  normalize_class_weights: true     # [pool]
+  extractor_sampler_power: 1.0      # [pool]
+  use_balanced_extractor_sampler: false   # [pool] 已有类别权重，再加平衡采样会重复校正
+  use_balanced_pseudo_sampler: true # 伪标签按类别平衡采样（有放回）
+  pseudo_sampler_power: 1.0
+
+rl:                                 # v2 设计，尚未修订（README_v3 第 8 节）
+  action_dim: 2
+  state_dim: 4
+  clip_epsilon: 0.2
+  gamma: 1.0
+  gae_lambda: 1.0
+  ppo_epochs: 4
+  ppo_lr: 0.0003
+  n_iterations: 30
+  episodes_per_iter: 4
+  episode_size: 512
+  min_keep_ratio: 0.05
+
+training:
+  # ---- extractor 与 detector 共用 [pool] ----
+  batch_size: 16                    # 有标签 batch
+  max_length: 512                   # 证据是整篇摘要：512 时约 13% 被截断
+  learning_rate: 1.0e-05
+  gradient_accumulation: 1
+  warmup_ratio: 0.1                 # extractor：总步数的 10%；detector：detector_total_steps 的 10%
+  use_bf16: true
+  use_tf32: true
+  # ---- extractor [pool] ----
+  freeze_layers: 6                  # extractor 冻结前 6 层
+  init_from_nli: true               # extractor 从 NLI 模型初始化
+  max_epochs: 8                     # 只用于 extractor（v3 的 detector 按步数训练）
+  early_stopping_patience: 5
+  extractor_text_augment: false
+  # ---- detector [v3] ----
+  detector_init_from_nli: true      # [v3] M1：detector 与 extractor 一样从 NLI 模型初始化（v2 从原始 deberta-v3-large 开始，A 弱于 extractor）
+  detector_freeze_layers: 6         # [v3] M1：与 extractor 一样冻结前 6 层
+  detector_total_steps: 640         # [v3] M2：所有组相同的参数更新次数（v2 为 224–648 步，由集合大小决定）
+  eval_every: 40                    # [v3] M2：每 40 步在 dev 上评估一次，取最佳（共 16 次）
+  pseudo_batch_size: 16
+  pseudo_ratio: 3                   # 每步 1 个有标签 batch + 3 个伪标签 batch（A 只有有标签 batch）
+  dynamic_padding: true             # 按 batch 内最长句对补齐
+  gradient_checkpointing: true      # 不能关：关闭后 64 条 × 256 token 即 OOM（32GB）
+  # ---- 其他 ----
+  num_workers: 4
+  seed: 42                          # 会被 run_all.py 的 --seed 覆盖
+
+teacher:                            # [F] 方向一：extractor + NLI 融合的 teacher（只有方法 F 使用；不属于 [pool]）
+  nli_fusion_alpha: 0.5             # p = (1 − α)·p_extractor + α·p_NLI；2026-10-04 由项目负责人事先确定为 0.5（两者等权，不调参）

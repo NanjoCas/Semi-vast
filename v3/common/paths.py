@@ -11,7 +11,7 @@ Per-run layout (one run = one (label_ratio, seed) pair):
     │   ├── labeled_train.jsonl      有标签部分
     │   ├── unlabeled_pool.jsonl     无标签池：claim + evidence，不含标签
     │   └── unlabeled_gold.jsonl     无标签池的金标签，仅供评估/Oracle 使用
-    ├── pseudo/                      伪标签池与各方法的伪标签集合
+    ├── pseudo/                      伪标签池、NLI 三类概率（方法 F）与各方法的伪标签集合
     ├── checkpoints/                 extractor / RL 权重（默认跑完即删；detector 的最佳权重只保存在内存中）
     └── outputs/
         ├── extractor/               extractor 训练记录
@@ -36,7 +36,8 @@ DEFAULT_CONFIG = ROOT / "configs" / "config.yaml"
 # Ablation methods (see training/build_baseline_sets.py and README_v3.md).
 MAIN_METHODS = ["A", "B", "Q", "K", "O"]
 LEGACY_METHODS = ["W", "R", "C"]          # v2 设计，尚未按 v3 重新设计（README_v3 第 8 节）
-ALL_METHODS = ["A", "B", "Q", "K", "W", "R", "C", "O"]
+ALL_METHODS = ["A", "B", "Q", "K", "F", "W", "R", "C", "O"]
+FUSION_METHODS = ["F"]                    # 方向一：extractor + NLI 融合的 teacher（README_v3 10.6），需要 teacher.nli_fusion_alpha
 
 _TAG_PATTERN = re.compile(r"^(?P<method>[A-Z])(?:_t(?P<train_seed>\d+))?$")
 
@@ -63,6 +64,22 @@ def cfg_path(cfg: dict, key: str) -> Path:
 
 def labeled_split_path(cfg: dict, split: str) -> Path:
     return cfg_path(cfg, "processed_dir") / "labeled" / f"{split}.jsonl"
+
+
+def nli_split_path(cfg: dict, split: str) -> Path:
+    """NLI probabilities of a labeled split (training/compute_nli_probs.py; used by the A⊕NLI control)."""
+    return cfg_path(cfg, "processed_dir") / "nli" / f"{split}.jsonl"
+
+
+def nli_fusion_alpha(cfg: dict) -> float:
+    """Weight of the NLI probabilities in the fused teacher of method F: p = (1-α)·p_extractor + α·p_NLI."""
+    teacher = cfg.get("teacher") or {}
+    if "nli_fusion_alpha" not in teacher:
+        raise SystemExit("方法 F 需要配置 teacher.nli_fusion_alpha（见 configs/config_f.yaml）")
+    alpha = float(teacher["nli_fusion_alpha"])
+    if not 0.0 <= alpha <= 1.0:
+        raise SystemExit(f"teacher.nli_fusion_alpha must be in [0, 1], got {alpha}")
+    return alpha
 
 
 def run_name(ratio: float, seed: int) -> str:
@@ -110,6 +127,7 @@ class RunPaths:
         self.pseudo_pool = self.pseudo / "pseudo_pool.jsonl"            # 全部无标签样本的伪标签
         self.pseudo_filtered = self.pseudo / "pseudo_filtered.jsonl"    # weight >= threshold（RL 与 W 的输入）
         self.pseudo_stats = self.pseudo / "pseudo_stats.json"
+        self.nli_probs = self.pseudo / "nli_probs.jsonl"                # 池中每条的 NLI 三类概率（方法 F）
         self.baseline_stats = self.pseudo / "baseline_sets_stats.json"
         self.rl_selected = self.pseudo / "set_C_rl.jsonl"
         self.rl_outputs = self.outputs / "rl_selector"
@@ -126,6 +144,7 @@ class RunPaths:
             "B": self.pseudo / "set_B_conf_top.jsonl",
             "Q": self.pseudo / "set_Q_conf_c_quantile.jsonl",
             "K": self.pseudo / "set_K_conf_topk.jsonl",
+            "F": self.pseudo / "set_F_fused_top.jsonl",
             "W": self.pseudo / "set_W_weighted.jsonl",
             "R": self.pseudo / "set_R_random.jsonl",
             "C": self.rl_selected,

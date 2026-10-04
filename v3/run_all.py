@@ -8,7 +8,8 @@ run_all.py — v3 一键运行脚本（README_v3 第 5 节）
   2. train_extractor        只用有标签部分训练 extractor（伪标签池已存在时跳过）
   3. generate_pseudolabels  对无标签池打伪标签，LogicScore 使用真实证据
   4. train_rl_selector      只有 C / R 需要（v2 设计）
-  5. build_baseline_sets    B / Q / K / O（以及 W / R）的伪标签集合；每次都重建（几秒钟，结果确定）
+  4b. compute_nli_probs     只有 F 需要：池中每条的 NLI 三类概率（另在全局算一次测试集的，供 A⊕NLI 对照）
+  5. build_baseline_sets    B / Q / K / F / O（以及 W / R）的伪标签集合；每次都重建（几秒钟，结果确定）
   6. train_detector         每个方法 × 每个训练 seed；结果已存在且配置指纹相同才跳过
   7. pseudo_label_quality   用隐藏的金标签评估伪标签与各集合
   8. sanity_check           自动检查 S1–S7，只警告不中断
@@ -42,6 +43,7 @@ sys.path.insert(0, str(ROOT))
 from common.fingerprint import config_fingerprint  # noqa: E402
 from common.paths import (  # noqa: E402
     ALL_METHODS,
+    FUSION_METHODS,
     LEGACY_METHODS,
     MAIN_METHODS,
     RunPaths,
@@ -49,6 +51,8 @@ from common.paths import (  # noqa: E402
     detector_tag,
     labeled_split_path,
     load_config,
+    nli_fusion_alpha,
+    nli_split_path,
     run_dir,
 )
 
@@ -180,6 +184,9 @@ def main() -> None:
     print(f"[INFO] methods      : {methods}")
     print(f"[INFO] train seeds  : split seed" + (f" + {extra_train_seeds}" if extra_train_seeds else ""))
     print(f"[INFO] device       : {device}")
+    needs_nli = any(m in FUSION_METHODS for m in methods)
+    if needs_nli:
+        print(f"[INFO] teacher      : extractor + NLI, nli_fusion_alpha = {nli_fusion_alpha(cfg)}（方法 {[m for m in methods if m in FUSION_METHODS]}）")
     legacy = [m for m in methods if m in LEGACY_METHODS]
     if legacy:
         print(f"[WARN] {legacy} 仍是 v2 的设计（复合权重用 |LogicScore|、RL 奖励近似常数），尚未按 v3 修订，"
@@ -193,9 +200,14 @@ def main() -> None:
         args.force or args.rebuild_data,
     )
 
+    if needs_nli:  # A⊕NLI 对照用的测试集 NLI 概率（全局一次）
+        run_step("NLI probs (test)",
+                 [PYTHON, "training/compute_nli_probs.py", "--config", config_arg, "--split", "test", "--device", device],
+                 nli_split_path(cfg, "test"), args.force)
+
     needs_pseudo = any(m != "A" for m in methods)
     needs_rl = any(m in ("C", "R") for m in methods)
-    baseline_methods = [m for m in methods if m in ("B", "Q", "K", "W", "R", "O")]
+    baseline_methods = [m for m in methods if m in ("B", "Q", "K", "F", "W", "R", "O")]
 
     for ratio in ratios:
         for seed in seeds:
@@ -224,6 +236,10 @@ def main() -> None:
                 run_step(f"[{tag_run}] Generate pseudo labels",
                          [PYTHON, "training/generate_pseudolabels.py", *common, "--device", device],
                          paths.pseudo_pool, args.force)
+                if needs_nli:
+                    run_step(f"[{tag_run}] NLI probs (pool)",
+                             [PYTHON, "training/compute_nli_probs.py", *common, "--device", device],
+                             paths.nli_probs, args.force)
                 if needs_rl:
                     run_step(f"[{tag_run}] Train RL selector (v2 design)",
                              [PYTHON, "training/train_rl_selector.py", *common, "--seed", str(seed), "--device", device],

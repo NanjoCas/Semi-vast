@@ -18,6 +18,10 @@ aggregate_results.py (v3)
     上界 < 0 且至少 ⌈0.8·n⌉ 个 seed 的 Δ < 0 为"显著更差"；其余为"不成立"。seed 少于 2 个时不下结论。
   - 主指标为整体 macro-F1；ClimateCheck 占测试集 78%，所以同时报告三个来源 macro-F1 的平均值作为次要指标。
 
+方向一（README_v3 10.8）：配置中有 teacher.nli_fusion_alpha、且存在测试集 NLI 概率（processed/nli/test.jsonl）时，
+每个 A（及其重复训练）另外生成一个不训练的对照 "A⊕NLI"：A 的测试概率与 NLI 概率按同一个 α 融合后取 argmax。
+它和普通的组一样进入总表、检验（F3：F − A⊕NLI）和训练噪声表。
+
 只用主训练 seed（训练 seed 等于划分 seed，目录名为方法名本身）的结果做比较；<方法>_t<seed> 的重复训练
 只进入训练噪声表。不同配置指纹的结果混在一起时报错（--allow_mixed 可跳过）。
 
@@ -46,14 +50,24 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from common.data_utils import load_jsonl  # noqa: E402
-from common.paths import ALL_METHODS, RunPaths, cfg_path, labeled_split_path, load_config, parse_detector_tag  # noqa: E402
+from common.paths import (  # noqa: E402
+    ALL_METHODS,
+    RunPaths,
+    cfg_path,
+    labeled_split_path,
+    load_config,
+    nli_split_path,
+    parse_detector_tag,
+)
 
 RUN_PATTERN = re.compile(r"^r(?P<ratio>[0-9.]+)_s(?P<seed>\d+)$")
 METHOD_NAMES = {
     "A": "A 纯监督",
+    "A⊕NLI": "A⊕NLI 对照（测试时融合 NLI，不用伪标签）",
     "B": "B 置信度前 30%",
     "Q": "Q 置信度 + 类内 c 分位（L-q）",
     "K": "K 同规模置信度对照",
+    "F": "F 融合 teacher（extractor + NLI）前 30%",
     "W": "W 复合权重（v2 设计）",
     "R": "R 随机（v2 设计）",
     "C": "C RL（v2 设计）",
@@ -64,8 +78,13 @@ HYPOTHESES = [
     ("H1", "B", "A", "半监督（伪标签）在最强的纯监督基线之上是否有效"),
     ("H2", "Q", "K", "同样规模下，LogicScore（方向一致性 c）能否选出更有用的伪标签（主要检验）"),
     ("H3", "Q", "B", "用 c 过滤（变小但更准）是否优于不过滤（次要，混有规模差异）"),
+    ("F1", "F", "A", "方向一：融合 teacher（extractor + NLI）的伪标签在 A 之上是否有效（README_v3 10.6）"),
+    ("F2", "F", "B", "方向一：融合 teacher 是否优于只用 extractor 的 teacher"),
+    ("F3", "F", "A⊕NLI", "方向一：提升是否来自半监督，而不只是 NLI 本身（对照在测试时直接融合 NLI）"),
     ("—", "O", "A", "上界：半监督最多能提升多少"),
 ]
+NLI_CONTROL = "A⊕NLI"                     # derived, untrained control (see module docstring)
+METHOD_ORDER = ["A", NLI_CONTROL, *[m for m in ALL_METHODS if m != "A"]]
 SOURCES = ("climatecheck", "climate_fever", "scifact")
 SOURCE_NAMES = {"climatecheck": "ClimateCheck", "climate_fever": "Climate-FEVER", "scifact": "SciFact"}
 
@@ -163,6 +182,13 @@ def main() -> None:
     id_pos = {i: n for n, i in enumerate(test_ids)}
     src_idx = np.array([SOURCES.index(r["source"]) if r.get("source") in SOURCES else -1 for r in test])
 
+    nli_alpha = (cfg.get("teacher") or {}).get("nli_fusion_alpha")
+    nli_test = None
+    if nli_alpha is not None and nli_split_path(cfg, "test").exists():
+        nli_rows = {str(r["id"]): r["probs"] for r in load_jsonl(nli_split_path(cfg, "test"))}
+        nli_test = np.array([nli_rows[i] for i in test_ids], dtype=float)
+        nli_alpha = float(nli_alpha)
+
     gold_ref: np.ndarray | None = None
     preds: dict[tuple, np.ndarray] = {}           # (ratio, seed, tag) -> predictions aligned with test_ids
     per_seed_rows: list[dict] = []
@@ -183,10 +209,13 @@ def main() -> None:
                 continue
             gold = np.full(len(test_ids), -1)
             pred = np.full(len(test_ids), -1)
+            probs = np.full((len(test_ids), 3), np.nan)
             for row in load_jsonl(pred_path):
                 pos = id_pos.get(str(row["id"]))
                 if pos is not None:
                     gold[pos], pred[pos] = int(row["gold"]), int(row["pred"])
+                    if row.get("probs") is not None:
+                        probs[pos] = row["probs"]
             if (pred < 0).any():
                 raise SystemExit(f"{pred_path} does not cover the whole test set ({int((pred < 0).sum())} missing)")
             if gold_ref is None:
@@ -206,6 +235,16 @@ def main() -> None:
             for s, name in enumerate(SOURCES):
                 row[f"macro_f1_{name}"] = macro_f1(gold[src_idx == s], pred[src_idx == s])
             per_seed_rows.append(row)
+            if method == "A" and nli_test is not None and not np.isnan(probs).any():
+                n_tag = tag.replace("A", NLI_CONTROL, 1)
+                n_pred = ((1 - nli_alpha) * probs + nli_alpha * nli_test).argmax(1)
+                preds[(ratio, seed, n_tag)] = n_pred
+                n_row = {**row, "tag": n_tag, "method": NLI_CONTROL, "pseudo_size": 0, "steps": None, "best_step": None,
+                         "best_val_macro_f1": None, "accuracy": float((n_pred == gold).mean()), "auc": None,
+                         "macro_f1": macro_f1(gold, n_pred), "source_avg_macro_f1": source_avg_f1(gold, n_pred, src_idx)}
+                for s, name in enumerate(SOURCES):
+                    n_row[f"macro_f1_{name}"] = macro_f1(gold[src_idx == s], n_pred[src_idx == s])
+                per_seed_rows.append(n_row)
         if paths.sanity_report.exists():
             with open(paths.sanity_report, encoding="utf-8") as fh:
                 sanity_warnings += [f"{run.name}: {w}" for w in json.load(fh).get("warnings", [])]
@@ -235,7 +274,7 @@ def main() -> None:
     for r in primary:
         grouped[(r["ratio"], r["method"])].append(r)
     summary_rows = []
-    for (ratio, method), items in sorted(grouped.items(), key=lambda kv: (kv[0][0], ALL_METHODS.index(kv[0][1]))):
+    for (ratio, method), items in sorted(grouped.items(), key=lambda kv: (kv[0][0], METHOD_ORDER.index(kv[0][1]))):
         entry = {"ratio": ratio, "method": method, "name": METHOD_NAMES.get(method, method), "n_seeds": len(items),
                  "seeds": ",".join(str(i["seed"]) for i in sorted(items, key=lambda x: x["seed"])),
                  "pseudo_size_mean": float(np.mean([i["pseudo_size"] for i in items]))}
@@ -295,7 +334,8 @@ def main() -> None:
         "# v3 消融实验汇总",
         "",
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M')}；runs 目录：`{runs_dir}`；配置指纹：{fp_list}",
-        "- 只用主训练 seed 的结果做比较；判据见 README_v3 第 4 节。",
+        "- 只用主训练 seed 的结果做比较；判据见 README_v3 第 4 节（方向一的 F1–F3 见 10.8 节）。"
+        + (f" A⊕NLI 为不训练的对照（α = {nli_alpha}）。" if nli_test is not None else ""),
         "",
         "## 1. 各组测试集 macro-F1（mean ± std）",
         "",
@@ -329,11 +369,11 @@ def main() -> None:
         lines.append("没有重复训练的结果。")
     lines += ["", "## 4. 伪标签集合质量", ""]
     if quality_rows:
-        lines += ["| run | 整池准确率 | " + " | ".join(f"{m} 条数 / 准确率 / 平衡后" for m in ("B", "Q", "K")) + " | c 的 AUROC | 置信度 AUROC |",
-                  "|---|---|---|---|---|---|---|"]
+        lines += ["| run | 整池准确率 | " + " | ".join(f"{m} 条数 / 准确率 / 平衡后" for m in ("B", "Q", "K", "F")) + " | c 的 AUROC | 置信度 AUROC |",
+                  "|---|---|---|---|---|---|---|---|"]
         for q in quality_rows:
             cells = []
-            for m in ("B", "Q", "K"):
+            for m in ("B", "Q", "K", "F"):
                 if q.get(f"set_{m}_size") is None:
                     cells.append("—")
                 else:
@@ -349,7 +389,7 @@ def main() -> None:
 
     # ---- plot ----
     fig, ax = plt.subplots(figsize=(8, 5))
-    for method in ALL_METHODS:
+    for method in METHOD_ORDER:
         pts = [e for e in summary_rows if e["method"] == method]
         if not pts:
             continue

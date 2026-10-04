@@ -124,15 +124,21 @@ def check_run(cfg: dict, run_dir: str | Path, late_fraction: float = 0.1, collap
         else:
             add("S5", "ok", f"所有结果的配置指纹都是 {current_fp}")
 
-    # S6 B size
-    nb, npool = _count_lines(paths.pseudo_set("B")), _count_lines(paths.pseudo_pool)
+    # S6 B (and F) size
+    npool = _count_lines(paths.pseudo_pool)
     frac = cfg.get("experiment", {}).get("confidence_top_fraction")
-    if nb is None or npool is None or frac is None:
-        add("S6", "skip", "B 的集合或伪标签池不存在")
-    elif nb == int(round(npool * float(frac))):
-        add("S6", "ok", f"|B| = {nb} = round({frac} × {npool})")
+    sizes = {m: _count_lines(paths.pseudo_set(m)) for m in ("B", "F")}
+    sizes = {m: n for m, n in sizes.items() if n is not None}
+    if not sizes or npool is None or frac is None:
+        add("S6", "skip", "B / F 的集合或伪标签池不存在")
     else:
-        add("S6", "warn", f"|B| = {nb}，但 round({frac} × {npool}) = {int(round(npool * float(frac)))}")
+        expected = int(round(npool * float(frac)))
+        bad = {m: n for m, n in sizes.items() if n != expected}
+        names = " = ".join(f"|{m}|" for m in sizes)
+        if bad:
+            add("S6", "warn", f"round({frac} × {npool}) = {expected}，但 " + "，".join(f"|{m}| = {n}" for m, n in bad.items()))
+        else:
+            add("S6", "ok", f"{names} = {expected} = round({frac} × {npool})")
 
     # S7 detector results match the current pseudo sets
     stale = {}

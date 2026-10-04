@@ -92,7 +92,7 @@ def main() -> None:
     }
     if paths.pseudo_filtered.exists():
         report["filtered_pool(weight>=threshold)"] = accuracy_report(load_jsonl(paths.pseudo_filtered), gold)
-    for method in ("B", "Q", "K", "W", "R", "C"):
+    for method in ("B", "Q", "K", "F", "W", "R", "C"):
         p = paths.pseudo_set(method)
         if p is not None and p.exists():
             report["methods"][method] = accuracy_report(load_jsonl(p), gold)

@@ -71,6 +71,7 @@ class LogicScorer:
             raise ValueError(f"{model_name} has no entailment/contradiction labels: {self.model.config.id2label}")
         self.idx_entailment = label2id["entailment"]
         self.idx_contradiction = label2id["contradiction"]
+        self.idx_neutral = label2id.get("neutral")
 
     def score(self, claim: str, evidence: str) -> float:
         """
@@ -119,11 +120,31 @@ class LogicScorer:
         Returns:
             list[float]: A list of LogicScores, one per input pair, each in [-1, 1].
         """
-        all_scores: list[float] = []
+        probs = self.probs_batch(pairs, batch_size=batch_size, desc="Scoring batches")
+        return [p[0] - p[1] for p in probs]
+
+    def probs_batch(
+        self,
+        pairs: list[tuple[str, str]],
+        batch_size: int = 32,
+        desc: str = "NLI batches",
+    ) -> list[list[float]]:
+        """
+        NLI probabilities for (claim, evidence) pairs, in pseudo-label order
+        [P(entailment), P(contradiction), P(neutral)] = [SUPPORTS, REFUTES, NOT_ENOUGH_INFO].
+
+        Same batching and premise/hypothesis order as LogicScore, so
+        LogicScore == probs[0] - probs[1] for every pair (v3 method F fuses these
+        probabilities with the extractor's, README_v3 10.6).
+        """
+        if self.idx_neutral is None:
+            raise ValueError("NLI model has no neutral label")
+        cols = [self.idx_entailment, self.idx_contradiction, self.idx_neutral]
+        out: list[list[float]] = []
 
         batches = [pairs[i : i + batch_size] for i in range(0, len(pairs), batch_size)]
 
-        for batch in tqdm(batches, desc="Scoring batches", unit="batch"):
+        for batch in tqdm(batches, desc=desc, unit="batch"):
             evidences = [evidence for _, evidence in batch]
             claims = [claim for claim, _ in batch]
 
@@ -139,10 +160,7 @@ class LogicScorer:
             with torch.no_grad():
                 logits = self.model(**inputs).logits
 
-            probs = F.softmax(logits, dim=-1)
-            scores = (
-                probs[:, self.idx_entailment] - probs[:, self.idx_contradiction]
-            ).tolist()
-            all_scores.extend(scores)
+            probs = F.softmax(logits, dim=-1)[:, cols]
+            out.extend(probs.tolist())
 
-        return all_scores
+        return out

@@ -10,6 +10,9 @@ build_baseline_sets.py (v3)
        NEI 全部保留（c 对 NEI 没有区分能力，见 v2 README 8.6），权重 1.0。
     K  同规模置信度对照：按置信度取前 |Q| 条（因此 K ⊂ B），权重 1.0。
        —— Q 与 K 规模相同、都在 B 内，只差选样规则：这是检验 LogicScore 的主要对比（H2）。
+    F  方向一（README_v3 10.6）：logic-aware teacher。伪标签与置信度来自 extractor 与 NLI 的融合
+       p = (1 − α)·p_extractor + α·p_NLI（α = teacher.nli_fusion_alpha，NLI 的蕴含 / 矛盾 / 中立对应 SUP / REF / NEI），
+       按融合后的置信度取前 confidence_top_fraction，权重 1.0。需要 pseudo/nli_probs.jsonl（training/compute_nli_probs.py）。
     O  Oracle：整个无标签池使用金标签，权重 1.0 —— 半监督方法能达到的上界。
 
     W / R 沿用 v2 的设计（尚未按 v3 重新设计，结论不可用，见 README_v3 第 8 节）：
@@ -32,14 +35,16 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from common.data_utils import ID2LABEL, LABEL2ID, direction_consistency, label_to_id, load_jsonl, save_jsonl  # noqa: E402
-from common.paths import RunPaths, load_config  # noqa: E402
+from common.paths import RunPaths, load_config, nli_fusion_alpha  # noqa: E402
 
 KEEP_FIELDS = ("id", "claim", "evidence", "pseudo_label", "weight", "confidence", "logic_score", "source")
-BUILDABLE = ("B", "Q", "K", "W", "R", "O")
+BUILDABLE = ("B", "Q", "K", "F", "W", "R", "O")
 
 
 def slim(rec: dict, **overrides) -> dict:
@@ -76,12 +81,27 @@ def select_quantile(base: list[dict], quantile: float) -> list[dict]:
     return kept
 
 
+def fuse_teacher(pool: list[dict], nli: dict[str, list[float]], alpha: float) -> list[dict]:
+    """方法 F：p = (1 − α)·p_extractor + α·p_NLI；伪标签 = argmax，置信度 = max。保留 extractor 原来的伪标签以便分析。"""
+    missing = [r["id"] for r in pool if str(r["id"]) not in nli]
+    if missing:
+        raise SystemExit(f"{len(missing)} pool records have no NLI probabilities (e.g. {missing[:3]}); "
+                         "run training/compute_nli_probs.py --run_dir first")
+    fused = []
+    for r in pool:
+        p = (1.0 - alpha) * np.asarray(r["probs"], dtype=float) + alpha * np.asarray(nli[str(r["id"])], dtype=float)
+        k = int(p.argmax())
+        fused.append({**r, "pseudo_label": k, "confidence": float(p[k]), "fused_probs": [round(float(x), 6) for x in p],
+                      "extractor_label": label_to_id(r["pseudo_label"]), "extractor_confidence": float(r["confidence"])})
+    return fused
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build pseudo-label sets for ablation methods B/Q/K/W/R/O.")
+    parser = argparse.ArgumentParser(description="Build pseudo-label sets for ablation methods B/Q/K/F/W/R/O.")
     parser.add_argument("--config", type=str, default="configs/config.yaml")
     parser.add_argument("--run_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--methods", type=str, default="B,Q,K,O", help="Comma-separated subset of B,Q,K,W,R,O.")
+    parser.add_argument("--methods", type=str, default="B,Q,K,O", help="Comma-separated subset of B,Q,K,F,W,R,O.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -118,6 +138,22 @@ def main() -> None:
             stats["K"] = {"size": len(kept), "matched_to_Q": len(q_set),
                           "min_confidence": round(float(k_src[-1]["confidence"]), 4) if k_src else None,
                           "labels": label_dist(kept)}
+
+    if "F" in methods:
+        fraction = float(exp_cfg["confidence_top_fraction"])
+        alpha = nli_fusion_alpha(cfg)
+        pool = load_jsonl(paths.pseudo_pool)
+        nli = {str(r["id"]): r["probs"] for r in load_jsonl(paths.nli_probs)}
+        fused_pool = fuse_teacher(pool, nli, alpha)
+        f_set = select_top_fraction(fused_pool, fraction)
+        kept = [slim(r, weight=1.0, extractor_label=r["extractor_label"], fused_probs=r["fused_probs"]) for r in f_set]
+        save_jsonl(kept, paths.pseudo_set("F"))
+        stats["F"] = {"teacher": "extractor + NLI", "nli_fusion_alpha": alpha, "confidence_top_fraction": fraction,
+                      "pool_size": len(pool), "size": len(kept),
+                      "min_confidence": round(float(f_set[-1]["confidence"]), 4) if f_set else None,
+                      "labels": label_dist(kept),
+                      "pool_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in fused_pool),
+                      "set_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in f_set)}
 
     if "W" in methods:
         filtered = load_jsonl(paths.pseudo_filtered)
