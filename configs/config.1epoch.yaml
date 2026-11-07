@@ -1,5 +1,5 @@
 models:
-  deberta_base: .hf_models/deberta-v3-base
+  deberta_base: /workspace/Semi-vast/Sophia/.hf_models/deberta-v3-base
   nli_model: cross-encoder/nli-deberta-v3-large
 paths:
   labeled_train: processed/labeled/train.jsonl
