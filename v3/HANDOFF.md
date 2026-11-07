@@ -25,8 +25,8 @@
   - **对论文的含义**：主要结论限定在低标注比例（10%）；0.25 / 0.5 作为"效果随标注增多而收敛"的分析，如实报告 F − B 不成立。
   - 更正：README_v3 10.9 原来写"进入 F 的样本 5 个 seed 都没有被融合改动标签"，实际 seed 46 有 76 / 1164 条（已更正；`../history.md` 同步更正）。
 - **文献检索（2026-11-06）**：`../LITERATURE_REVIEW.md`（在线文档 https://claude.ai/artifact/J7HyzwS86S2Cwnc7td551N ）。方法 F 有很接近的前人工作（Folino & Pontieri 2026、VerifyMatch 2024、MultiMatch 2025），论文需要正面比较，并补上只看 claim 的基线和 TAPT 等外部基线。
-- **第 5 节只剩在自己的终端推送；下一步见第 6 节。**
-- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交、尚未推送**：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器上没有 GitHub 凭据，推送需要在自己的终端完成（第 8 节）。
+- **第 5 节已全部完成；下一步见第 6 节。**
+- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。
 
 ## 1. 项目与环境
 
@@ -127,7 +127,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 2. ✅ `results_fc/summary.md`：结果与 7 条自动检查警告（6 条 S2、1 条 S3）都已解释，写在 README_v3 12.6 末尾。
 3. ✅ `results_fc/compare_runs.md`：编译与 eager 没有系统性偏移，F − A 一致（+0.053 vs +0.049），见 README_v3 12.4.1。
 4. ✅ 结果已写入 README_v3 12.4.1、12.5（执行情况）、新增的 12.6（F − A 随 ratio 的变化）和第 9 节执行清单第 5 步（2026-11-07）。
-5. ✅ 提交 git（2026-11-07，两次提交，见第 0 节最后一条；有两处有意没有提交）。⬜ 在自己的终端推送：`git push origin v3-training-protocol`。
+5. ✅ 提交 git（2026-11-07，两次提交，见第 0 节最后一条；有两处有意没有提交）。✅ 已推送（2026-11-07）。
 
 ## 6. 下一步（按优先级；改代码前先确认没有任务在跑）
 
@@ -169,4 +169,4 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 - 服务器可以访问 huggingface.co 和 arxiv.org（curl 可用）；模型缓存在 `../model_cache`。
 - 主机负载高时（load average 25–33）每步耗时会翻倍，checkpoint 写盘也会变慢；v3 已不再反复写盘。
 - v2 的分析脚本（`../v2/analysis/`）硬编码了 v2 的路径，没有复制到 v3；v3 的汇总都在 `evaluation/aggregate_results.py` 中。
-- git：服务器上没有 GitHub 凭据（没有 token、SSH 私钥或凭据助手），`git push` 会报 `could not read Username`。在 VS Code 的终端里执行 `git push -u origin v3-training-protocol`（密码处填 GitHub Personal Access Token），或用 VS Code 源代码管理面板的"发布分支"。服务器上 git 没有配置作者身份，之前的提交都用 `git -c user.name=... -c user.email=...` 沿用上一个提交的作者。
+- git：2026-11-07 起服务器用 deploy key 推送：私钥 `~/.ssh/semi_vast_deploy`，公钥加在 GitHub 仓库 Settings → Deploy keys（有写权限，只对这个仓库有效，不用时在那里删除）。仓库设置：`origin` 拉取仍走 HTTPS，推送走 SSH（`remote.origin.pushurl`），`core.sshCommand` 指定这把密钥；fetch 规则原来只有 `v2-data-design`，已追加 `v3-training-protocol`，所以直接 `git push` / `git fetch` 即可。私钥在系统盘上（不在 `autodl-tmp`），迁移实例或重置系统盘后会丢失，需要重新生成并在 GitHub 上替换公钥。VS Code 的 GitHub 登录弹窗在这台服务器上不出现；用 token 推送时在终端执行 `GIT_ASKPASS= git push`。服务器上 git 没有配置作者身份，之前的提交都用 `git -c user.name=... -c user.email=...` 沿用上一个提交的作者。
