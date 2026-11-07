@@ -1,6 +1,6 @@
 # Semi-vast v3 交接文档
 
-> 更新于 2026-11-07（全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
+> 更新于 2026-11-07 晚（第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
 
 ## 0. 现状
 
@@ -26,7 +26,14 @@
   - 更正：README_v3 10.9 原来写"进入 F 的样本 5 个 seed 都没有被融合改动标签"，实际 seed 46 有 76 / 1164 条（已更正；`../history.md` 同步更正）。
 - **文献检索（2026-11-06）**：`../LITERATURE_REVIEW.md`（在线文档 https://claude.ai/artifact/J7HyzwS86S2Cwnc7td551N ）。方法 F 有很接近的前人工作（Folino & Pontieri 2026、VerifyMatch 2024、MultiMatch 2025），论文需要正面比较，并补上只看 claim 的基线和 TAPT 等外部基线。
 - **第 5 节已全部完成；下一步见第 6 节。**
-- **外部基线与 α 敏感性（2026-11-07，项目负责人决定）**：不补 ratio 0.05；做第 6 节第 1–4 项（只看 claim 的基线 AC、α 敏感性 F25 / F75 / F100、多 NLI 集成 E、TAPT 的 AT）。方法、检验与判据在运行之前写进 README_v3 第 13 节并提交。
+- **外部基线与 α 敏感性（2026-11-07，项目负责人决定）**：不补 ratio 0.05；做第 6 节第 1–4 项（只看 claim 的基线 AC、α 敏感性 F25 / F75 / F100、多 NLI 集成 E、TAPT 的 AT）。方法、检验与判据在运行之前写进 README_v3 第 13 节并提交。实现见提交 `50e479f`（离线检查：重建的 B / F / O 集合与 `runs_fc` 逐字节相同；`hypotheses.csv` 不变；3 个 NLI 模型验证集零样本 macro-F1 0.462 / 0.511 / 0.433；seed 42 的池中 2363 / 3853 条三个模型一致，|E| = 1156）。**AC、F25 / F75 / F100、E 已完成**（2026-11-07 14:40 – 17:52，`run_ext_fc.sh`，日志 `logs/ext_fc.log`；25 个 detector 没有失败，`uncompiled_frames` 都为 0；汇总 `results_fc/summary.md` 第 2b 节；结果与解读见 README_v3 13.7）：
+  - **X1 A − AC = +0.083，CI (+0.064, +0.106)，5/5，成立**。AC 为 0.428，高于随机；claim 本身的线索集中在 ClimateCheck（AC 0.447，A 只高 0.049），SciFact 上 AC 接近随机。
+  - **R1 / R2 成立**：F25 − A = +0.050、F75 − A = +0.052。α 在 0.25–0.75 之间测试 F1 为 0.561–0.564；只按验证集选出的 α 是 0.5。
+  - **R3 不成立**：F − F100 = +0.016，5/5 为正，但 CI 下界 −0.0008（来源平均成立）；差异主要来自 seed 45。
+  - **E1 不成立**：F − E = −0.001，2/5。均值相同（0.564 / 0.565），E 的跨 seed 标准差 0.034，F 为 0.009。E − F100 = +0.017 成立。
+  - 机制（事后分析）：只用 NLI 的 teacher 几乎不给 SUPPORTS（F100 集合中 7–8 条，E 中约 85 条，F 中 149–258 条，池中金标签占 45%），detector 随之少预测 SUPPORTS；seed 45 最明显。
+  - 新增 2 条 S2 警告（F25 在 s43 / s45 最佳步靠后），对 R1 是保守的。
+  - **下一步是 TAPT（README_v3 13.5）**：脚本还没写（13.6 第 3 步）。
 - git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。
 
 ## 1. 项目与环境
@@ -115,6 +122,10 @@ bash logs/progress.sh logs/full_fc.log    # 进度快照
 # 全量实验中断或失败后续跑（已完成且指纹相同的会跳过）；不想关机加 NO_SHUTDOWN=1
 NO_SHUTDOWN=1 setsid nohup bash run_full_fc.sh > logs/full_fc.log 2>&1 < /dev/null &
 
+# 第 13 节的实验（AC、F25 / F75 / F100、E）：进度与中断后续跑（已完成的会跳过）
+bash logs/watch.sh logs/ext_fc.log
+setsid nohup bash run_ext_fc.sh > logs/ext_fc.log 2>&1 < /dev/null &
+
 # 汇总与配对比较（只读结果，几十秒）
 python run_all.py --config configs/config_fc.yaml --aggregate_only   # -> results_fc/summary.md
 python evaluation/compare_runs.py --ratio 0.1                        # -> results_fc/compare_runs.md
@@ -132,16 +143,16 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 
 ## 6. 下一步（按优先级；改代码前先确认没有任务在跑）
 
-第 1–4 项的设计与事先确定的检验见 README_v3 第 13 节（2026-11-07）。
+第 1–4 项的设计与事先确定的检验见 README_v3 第 13 节（2026-11-07）。第 1、2、4 项已完成（2026-11-07，结果见 README_v3 13.7）；**现在要做的是第 3 项 TAPT**。
 
 下面的实验都和 `runs_fc` 的 A / F 比较，所以都用 `config_fc.yaml` 的训练协议，ratio 0.1、seed 42–46。全量实验表明 F 相对 B 的优势只在 ratio 0.1 成立（README_v3 12.6），所以这些实验都放在 ratio 0.1 上做，不需要在 0.25 / 0.5 上重复。
 
 | 优先级 | 任务 | 做法 | 代价 | 依据 |
 |---|---|---|---|---|
-| 1 必做 | 只看 claim 的基线 | 新方法（例如 `A_claim`）：detector 训练和测试都只输入 claim，其余与 A 相同；要改 Dataset、方法列表与 `common/paths.py` | 约 20 分钟（A 每个约 3.3 分钟） | Schuster 2019；Usmanova 2026。评审一定会问 |
-| 2 必做 | α 敏感性 | α = 0 就是 B，α = 0.5 已有；补 α = 0.25、0.75、1.0（1.0 = 只用 NLI 的 teacher）。`teacher.nli_fusion_alpha` 在指纹里，每个 α 要单独的配置和 runs 目录，像 `run_main_fc.sh` 一样沿用 `runs_f` 的伪标签池 | 约 2.3 小时（3 × 5 × 9 分钟） | README_v3 10.9 限制 2：α 是看过金标签后定的 |
-| 3 必做 | TAPT 外部基线 | 在无标签池（可加上 ClimateCheck 的 39 万篇摘要）上继续预训练 encoder，再按 A 的设置微调。**注意**：DeBERTa-v3 用 RTD 预训练，官方权重没有 MLM 头，要新初始化 MLM 头或改用 RTD 目标，先做小规模可行性验证 | 预训练时间待测，微调约 20 分钟 | Shi 2023；Gururangan 2020 |
-| 4 建议 | 多 NLI 模型集成 + 拒识 | 2–3 个现成 NLI 模型零样本标注无标签池，一致才保留，作为新方法与 F 比较 | 低：推理加选样规则，约 1 小时 | Folino & Pontieri 2026（最接近的工作） |
+| ✅ 1 必做 | 只看 claim 的基线（已完成：方法 AC，X1 成立，README_v3 13.7） | 新方法（例如 `A_claim`）：detector 训练和测试都只输入 claim，其余与 A 相同；要改 Dataset、方法列表与 `common/paths.py` | 约 20 分钟（A 每个约 3.3 分钟） | Schuster 2019；Usmanova 2026。评审一定会问 |
+| ✅ 2 必做 | α 敏感性（已完成：F25 / F75 / F100，R1 / R2 成立、R3 不成立；没有用单独的配置，见 README_v3 13.1） | α = 0 就是 B，α = 0.5 已有；补 α = 0.25、0.75、1.0（1.0 = 只用 NLI 的 teacher）。`teacher.nli_fusion_alpha` 在指纹里，每个 α 要单独的配置和 runs 目录，像 `run_main_fc.sh` 一样沿用 `runs_f` 的伪标签池 | 约 2.3 小时（3 × 5 × 9 分钟） | README_v3 10.9 限制 2：α 是看过金标签后定的 |
+| **3 必做（下一步）** | TAPT 外部基线（方法 AT，检验 T1；设计已定在 README_v3 13.5：从 `cross-encoder/nli-deberta-v3-large` 起、新初始化 MLM 头、每个 seed 只用自己的无标签池、不用 39 万篇摘要） | 在无标签池（可加上 ClimateCheck 的 39 万篇摘要）上继续预训练 encoder，再按 A 的设置微调。**注意**：DeBERTa-v3 用 RTD 预训练，官方权重没有 MLM 头，要新初始化 MLM 头或改用 RTD 目标，先做小规模可行性验证 | 预训练时间待测，微调约 20 分钟 | Shi 2023；Gururangan 2020 |
+| ✅ 4 建议 | 多 NLI 模型集成 + 拒识（已完成：方法 E，E1 不成立，README_v3 13.7） | 2–3 个现成 NLI 模型零样本标注无标签池，一致才保留，作为新方法与 F 比较 | 低：推理加选样规则，约 1 小时 | Folino & Pontieri 2026（最接近的工作） |
 | 5 建议 | 泛化测试（HealthFC） | ① 转换 HealthFC，核对标签能否映射到三分类、证据格式（不占 GPU）；② 在单独目录重训 ratio 0.1 的 A、F 并保存权重（`run_all.py --keep_checkpoints`，10 个模型约 17GB，数据盘剩约 46GB）；③ 写一个"加载保存的权重、在任意测试集上评估"的脚本 | 约 1 小时 GPU | 回应"测试集被 ClimateCheck 主导" |
 | 6 建议 | 更低的标注比例（ratio 0.05） | 加到 `config_fc.yaml` 的 `experiment.label_ratios`（不影响指纹），A / B / F / O × seed 42–46，从 SSL 划分和 extractor 开始 | 约 3 小时（按 ratio 0.25 的耗时估计） | 12.6：F 的贡献随标注减少而增大，补一个更低的点能支撑"低资源"的定位；需要项目负责人决定，且要在跑之前写定判据 |
 | 7 可选 | 标准半监督基线 | USB 的 FixMatch / FreeMatch（或 MultiMatch），需要回译等文本增强 | 中到高 | USB 2022；Sirbu 2025 |
@@ -153,6 +164,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 - 论文定位：建议写成"证据感知的逻辑 teacher 用于伪标签选择"，RL 作为负面结果或放进附录（与开题报告的差异要确认）。全量实验后，建议主要结论限定在低标注比例（ratio 0.1），ratio 0.25 / 0.5 作为"teacher 变强后融合不再有额外作用"的分析（README_v3 12.6）。
 - ~~是否补 ratio 0.05~~：2026-11-07 决定不补。
 - 外部基线的范围：2026-11-07 决定做第 6 节 1–4 项（README_v3 第 13 节）；7（标准半监督基线）待定。
+- R3、E1 不成立之后的论文定位（2026-11-07 新增）：方法 F 不再能声称优于只用 NLI 的 teacher 或多 NLI 集成。建议把贡献写成"证据感知的融合 teacher 在低标注比例下稳定有效、对 α 不敏感"，与 E 的比较如实报告为"均值相当、F 跨 seed 更稳定、类别覆盖更完整"（描述性，README_v3 13.7 第 5 条）。是否另加一个"按类别配额选样"的 E 变体来检验这个机制，需要项目负责人决定，且要在跑之前写定判据。
 - 泛化测试集：是否用 HealthFC（健康领域，标签映射待核对）。
 - α 是否按来源分别设定：会多一个超参数，选择规则要事先写定，避免在测试集上挑。
 - Climate-FEVER 的 DISPUTED 处理（目前丢弃）。

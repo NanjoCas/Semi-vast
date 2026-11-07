@@ -145,6 +145,154 @@
           408
         ]
       ]
+    },
+    "F25": {
+      "size": 1156,
+      "matched": 1156,
+      "accuracy": 0.6029411764705882,
+      "balanced_precision": 0.6446194974360024,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 213,
+          "precision": 0.8215962441314554
+        },
+        "REFUTES": {
+          "predicted": 244,
+          "precision": 0.5614754098360656
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 699,
+          "precision": 0.5507868383404864
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          175,
+          34,
+          209
+        ],
+        [
+          8,
+          137,
+          105
+        ],
+        [
+          30,
+          73,
+          385
+        ]
+      ]
+    },
+    "F75": {
+      "size": 1156,
+      "matched": 1156,
+      "accuracy": 0.5856401384083045,
+      "balanced_precision": 0.6769972576443511,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 151,
+          "precision": 0.8675496688741722
+        },
+        "REFUTES": {
+          "predicted": 194,
+          "precision": 0.6443298969072165
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 811,
+          "precision": 0.5191122071516646
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          131,
+          10,
+          289
+        ],
+        [
+          4,
+          125,
+          101
+        ],
+        [
+          16,
+          59,
+          421
+        ]
+      ]
+    },
+    "F100": {
+      "size": 1156,
+      "matched": 1156,
+      "accuracy": 0.5207612456747405,
+      "balanced_precision": 0.6777940460395531,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 8,
+          "precision": 0.875
+        },
+        "REFUTES": {
+          "predicted": 249,
+          "precision": 0.6867469879518072
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 899,
+          "precision": 0.47163515016685204
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          7,
+          15,
+          412
+        ],
+        [
+          0,
+          171,
+          63
+        ],
+        [
+          1,
+          63,
+          424
+        ]
+      ]
+    },
+    "E": {
+      "size": 1156,
+      "matched": 1156,
+      "accuracy": 0.5449826989619377,
+      "balanced_precision": 0.7125253907059653,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 86,
+          "precision": 0.9651162790697675
+        },
+        "REFUTES": {
+          "predicted": 220,
+          "precision": 0.7136363636363636
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 850,
+          "precision": 0.4588235294117647
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          83,
+          11,
+          407
+        ],
+        [
+          0,
+          157,
+          53
+        ],
+        [
+          3,
+          52,
+          390
+        ]
+      ]
     }
   },
   "filtered_pool(weight>=threshold)": {

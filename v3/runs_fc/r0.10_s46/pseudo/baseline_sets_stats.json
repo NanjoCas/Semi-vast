@@ -32,5 +32,70 @@
       "REFUTES": 631,
       "NOT_ENOUGH_INFO": 1495
     }
+  },
+  "F25": {
+    "teacher": "extractor + NLI",
+    "nli_fusion_alpha": 0.25,
+    "confidence_top_fraction": 0.3,
+    "pool_size": 3880,
+    "size": 1164,
+    "min_confidence": 0.5914,
+    "labels": {
+      "SUPPORTS": 259,
+      "REFUTES": 336,
+      "NOT_ENOUGH_INFO": 569
+    },
+    "pool_labels_changed_by_fusion": 1312,
+    "set_labels_changed_by_fusion": 13
+  },
+  "F75": {
+    "teacher": "extractor + NLI",
+    "nli_fusion_alpha": 0.75,
+    "confidence_top_fraction": 0.3,
+    "pool_size": 3880,
+    "size": 1164,
+    "min_confidence": 0.8428,
+    "labels": {
+      "SUPPORTS": 205,
+      "REFUTES": 322,
+      "NOT_ENOUGH_INFO": 637
+    },
+    "pool_labels_changed_by_fusion": 2583,
+    "set_labels_changed_by_fusion": 149
+  },
+  "F100": {
+    "teacher": "NLI only",
+    "nli_fusion_alpha": 1.0,
+    "confidence_top_fraction": 0.3,
+    "pool_size": 3880,
+    "size": 1164,
+    "min_confidence": 0.9977,
+    "labels": {
+      "SUPPORTS": 7,
+      "REFUTES": 251,
+      "NOT_ENOUGH_INFO": 906
+    },
+    "pool_labels_changed_by_fusion": 2597,
+    "set_labels_changed_by_fusion": 826
+  },
+  "E": {
+    "teacher": "NLI ensemble (agreement)",
+    "models": [
+      "cross-encoder/nli-deberta-v3-large",
+      "facebook/bart-large-mnli",
+      "FacebookAI/roberta-large-mnli"
+    ],
+    "confidence_top_fraction": 0.3,
+    "pool_size": 3880,
+    "agreed": 2364,
+    "target_size": 1164,
+    "size": 1164,
+    "min_confidence": 0.9165,
+    "labels": {
+      "SUPPORTS": 86,
+      "REFUTES": 221,
+      "NOT_ENOUGH_INFO": 857
+    },
+    "set_labels_differ_from_extractor": 765
   }
 }

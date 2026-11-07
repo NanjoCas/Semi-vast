@@ -30,7 +30,7 @@
     {
       "id": "S6",
       "status": "ok",
-      "detail": "|B| = |F| = 1157 = round(0.3 × 3856)"
+      "detail": "|B| = |F| = |F25| = |F75| = |F100| = 1157 = round(0.3 × 3856)；|E| = 1157"
     },
     {
       "id": "S7",
@@ -40,7 +40,7 @@
     {
       "id": "S8",
       "status": "ok",
-      "detail": "4 个 detector 的所有层都已编译"
+      "detail": "9 个 detector 的所有层都已编译"
     }
   ],
   "warnings": []
