@@ -24,6 +24,10 @@ _EXCLUDED_KEYS = {
     ("experiment", "cleanup_checkpoints"),
     ("training", "num_workers"),
     ("training", "seed"),          # 每个 run 由 run_all.py 的 --seed 覆盖
+    # 只决定哪些层做梯度检查点（速度 / 显存），不改变计算结果（README_v3 第 11 节）。
+    # training.gradient_checkpointing 本身仍在指纹里：v3 已有的指纹都包含它，去掉会让已有结果全部失效。
+    ("training", "gradient_checkpointing_skip_layers"),
+    ("training", "extractor_gradient_checkpointing_skip_layers"),
 }
 _EXCLUDED_SECTIONS = {"paths", "use_local_models"}
 

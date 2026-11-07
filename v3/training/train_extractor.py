@@ -62,6 +62,7 @@ sys.path.insert(0, str(ROOT))
 
 from common.data_utils import ClaimEvidenceDataset                 # noqa: E402
 from common.paths import RunPaths, cfg_path, labeled_split_path, load_config  # noqa: E402
+from models.encoder_runtime import enable_gradient_checkpointing    # noqa: E402
 from models.extractor import TextualFeatureExtractor               # noqa: E402
 
 
@@ -612,9 +613,12 @@ def main() -> None:
         local_files_only=use_local_models,
     )
 
-    # Enable gradient checkpointing for small batch sizes to save memory
-    print("[train_extractor] Enabling gradient checkpointing to save memory.")
-    model.deberta.gradient_checkpointing_enable()
+    # Gradient checkpointing saves memory; layers with enough memory keep their activations (README_v3 第 11 节).
+    n_layers = len(model.deberta.encoder.layer)
+    checkpointed = enable_gradient_checkpointing(
+        model.deberta, int(training_cfg.get("extractor_gradient_checkpointing_skip_layers", 0))
+    )
+    print(f"[train_extractor] Gradient checkpointing: {checkpointed}/{n_layers} encoder layers.")
 
     model.to(device)
     scaler = torch.amp.GradScaler(device="cuda", enabled=(device.type == "cuda" and use_fp16))

@@ -118,7 +118,10 @@ training:
   pseudo_batch_size: 16
   pseudo_ratio: 3                   # 每步 1 个有标签 batch + 3 个伪标签 batch（A 只有有标签 batch）
   dynamic_padding: true             # 按 batch 内最长句对补齐
-  gradient_checkpointing: true      # 不能关：关闭后 64 条 × 256 token 即 OOM（32GB）
+  gradient_checkpointing: true      # 不能全关：96GB 上全部关闭也会 OOM（64 条 × 512 token）；下面两项决定哪些层不做检查点
+  # ---- 只影响速度 / 显存，不在配置指纹中（README_v3 第 11 节；2026-11-05 在 RTX PRO 6000 96GB 上实测）----
+  gradient_checkpointing_skip_layers: 18            # detector 前 18 层不做检查点：1.76 → 1.39 秒/步，最坏情况峰值 84GB（全 512 token）；换 32GB 的卡要改回 0
+  extractor_gradient_checkpointing_skip_layers: 24  # extractor（16 条 × 512 token）全部 24 层都不做检查点
   # ---- 其他 ----
   num_workers: 4
   seed: 42                          # 会被 run_all.py 的 --seed 覆盖

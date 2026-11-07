@@ -38,6 +38,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from transformers import AutoModel, AutoTokenizer
 
+from models.encoder_runtime import enable_gradient_checkpointing
+
 
 # ---------------------------------------------------------------------------
 # Label constants
@@ -435,14 +437,16 @@ class DualChannelDetector(nn.Module):
     # Memory optimisation
     # ------------------------------------------------------------------
 
-    def enable_gradient_checkpointing(self) -> None:
+    def enable_gradient_checkpointing(self, skip_layers: int = 0) -> int:
         """
         Enable gradient checkpointing on the DeBERTa encoder to reduce GPU
         memory at the cost of slightly slower backward passes.
 
-        Recommended when running with batch_size > 8 and max_length=512.
+        The first `skip_layers` layers keep their activations instead (faster when
+        memory allows; see models/encoder_runtime.py). Returns the number of
+        checkpointed layers.
         """
-        self.deberta.gradient_checkpointing_enable()
+        return enable_gradient_checkpointing(self.deberta, skip_layers)
 
 
 # ---------------------------------------------------------------------------

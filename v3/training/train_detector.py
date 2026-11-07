@@ -73,6 +73,7 @@ from common.data_utils import (  # noqa: E402
 from common.fingerprint import config_fingerprint  # noqa: E402
 from common.paths import ALL_METHODS, RunPaths, cfg_path, detector_tag, labeled_split_path, load_config  # noqa: E402
 from models.detector import DualChannelDetector, compute_class_priors  # noqa: E402
+from models.encoder_runtime import compile_encoder_layers, uncompiled_frames  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -278,8 +279,26 @@ def train(
     pseudo_loss_type = str(algo_cfg.get("pseudo_loss_type", "ce")).lower()
     pseudo_weight_norm = str(algo_cfg.get("pseudo_weight_norm", "mean")).lower()
 
+    n_layers = len(detector.deberta.encoder.layer)
+    checkpointed_layers = 0
     if bool(train_cfg.get("gradient_checkpointing", True)):
-        detector.enable_gradient_checkpointing()
+        checkpointed_layers = detector.enable_gradient_checkpointing(
+            int(train_cfg.get("gradient_checkpointing_skip_layers", 0))
+        )
+    log.info("gradient checkpointing: %d/%d encoder layers (the first %d keep activations)",
+             checkpointed_layers, n_layers, n_layers - checkpointed_layers)
+    if device.type == "cuda" and checkpointed_layers < n_layers:
+        free, total = torch.cuda.mem_get_info(device)
+        if free < 0.85 * total:
+            log.warning("GPU 上已有 %.1f GB 被其他进程占用；跳过检查点的层需要的显存是按独占整张卡设定的，"
+                        "可能 OOM（README_v3 第 11 节）。同时跑别的任务时请打开 training.gradient_checkpointing "
+                        "或调小 training.gradient_checkpointing_skip_layers。",
+                        (total - free) / 2**30)
+    torch_compile = bool(train_cfg.get("torch_compile", False))
+    if torch_compile:
+        fallback_random = bool(train_cfg.get("compile_fallback_random", True))
+        n_compiled = compile_encoder_layers(detector.deberta, fallback_random=fallback_random)
+        log.info("torch.compile: %d encoder layers (dynamic shapes, fallback_random=%s)", n_compiled, fallback_random)
 
     trainable = [p for p in detector.parameters() if p.requires_grad]
     optimizer = AdamW(trainable, lr=lr, weight_decay=0.01)
@@ -403,6 +422,8 @@ def train(
             t_window = time.time()
 
     best["skipped_nonfinite"] = skipped_nonfinite
+    best["checkpointed_layers"] = checkpointed_layers
+    best["torch_compile"] = torch_compile
     log.info("Training complete. Best val macro-F1: %.4f at step %d/%d", best_f1, best["step"], total_steps)
     return history, best
 
@@ -626,8 +647,14 @@ def main() -> None:
         "test_gold_counts": _label_counts(p["gold"] for p in predictions),
         "test_pred_counts": _label_counts(p["pred"] for p in predictions),
         "train_minutes": round(train_minutes, 1),
+        "checkpointed_layers": best.get("checkpointed_layers"),
+        "torch_compile": best.get("torch_compile"),
+        "uncompiled_frames": uncompiled_frames() if best.get("torch_compile") else None,
+        "gpu_peak_gb": round(torch.cuda.max_memory_allocated(device) / 2**30, 1) if device.type == "cuda" else None,
         **test_metrics,
     }
+    if results["uncompiled_frames"]:
+        log.warning("torch.compile: %d 个 frame 没有被编译（退回了 eager），见 README_v3 第 12 节", results["uncompiled_frames"])
     with open(out_dir / "test_results.json", "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2, ensure_ascii=False)
     with open(out_dir / "test_predictions.jsonl", "w", encoding="utf-8") as fh:
