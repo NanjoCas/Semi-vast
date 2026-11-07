@@ -12,9 +12,10 @@ Per-run layout (one run = one (label_ratio, seed) pair):
     │   ├── unlabeled_pool.jsonl     无标签池：claim + evidence，不含标签
     │   └── unlabeled_gold.jsonl     无标签池的金标签，仅供评估/Oracle 使用
     ├── pseudo/                      伪标签池、NLI 三类概率（方法 F；方法 E 的另外两个模型为 nli_probs__<模型>.jsonl）与各方法的伪标签集合
-    ├── checkpoints/                 extractor / RL 权重（默认跑完即删；detector 的最佳权重只保存在内存中）
+    ├── checkpoints/                 extractor / RL / TAPT 后的 encoder 权重（默认跑完即删；detector 的最佳权重只保存在内存中）
     └── outputs/
         ├── extractor/               extractor 训练记录
+        ├── tapt/、tapt_probe/       TAPT 的训练记录；可行性测试（只有验证集结果，README_v3 13.5）
         ├── detector/<tag>/          tag = 方法名（如 B）；换训练 seed 重复时为 B_t1042
         ├── pseudo_label_quality.json
         └── sanity_check.json        每个 run 结束后的自动检查
@@ -36,14 +37,18 @@ DEFAULT_CONFIG = ROOT / "configs" / "config.yaml"
 # Ablation methods (see training/build_baseline_sets.py and README_v3.md).
 MAIN_METHODS = ["A", "B", "Q", "K", "O"]
 LEGACY_METHODS = ["W", "R", "C"]          # v2 设计，尚未按 v3 重新设计（README_v3 第 8 节）
-ALL_METHODS = ["A", "AC", "B", "Q", "K", "F", "F25", "F75", "F100", "E", "W", "R", "C", "O"]
+ALL_METHODS = ["A", "AC", "AT", "B", "Q", "K", "F", "F25", "F75", "F100", "E", "W", "R", "C", "O"]
 FUSION_METHODS = ["F"]                    # 方向一：extractor + NLI 融合的 teacher（README_v3 10.6），需要 teacher.nli_fusion_alpha
 # README_v3 第 13 节。α 与集成模型写在这里而不进配置：配置里新增任何键都会改变指纹，使已有结果失效。
 ALPHA_VARIANTS = {"F25": 0.25, "F75": 0.75, "F100": 1.0}   # 与 F 相同，只是 α 不同（α = 1.0 即只用 NLI）
 CLAIM_ONLY_METHODS = ["AC"]               # 与 A 相同，但 detector 只输入 claim
 ENSEMBLE_NLI_MODELS = ["facebook/bart-large-mnli", "FacebookAI/roberta-large-mnli"]  # 方法 E：加上 models.nli_model 共 3 个
 NLI_POOL_METHODS = [*FUSION_METHODS, *ALPHA_VARIANTS, "E"]  # 需要无标签池的 NLI 概率
-NO_PSEUDO_METHODS = ["A", *CLAIM_ONLY_METHODS]
+TAPT_METHODS = ["AT"]                     # 与 A 相同，但 encoder 先在无标签池上做 MLM 继续预训练（training/tapt.py，README_v3 13.5）
+NO_PSEUDO_METHODS = ["A", *CLAIM_ONLY_METHODS, *TAPT_METHODS]
+# TAPT 的设置（README_v3 13.5）：在 seed 42 上做完可行性测试、补进 13.5 并提交 git 之后才填。
+# 和 α 一样写在代码里，不进配置（否则指纹改变，runs_fc 的结果全部失效）。为 None 时 run_all.py 拒绝跑 AT。
+TAPT_SETTINGS: dict | None = {"lr": 3e-6, "mask_prob": 0.15, "epochs": 1}   # 2026-11-07 可行性测试选定（README_v3 13.5.1）
 
 _TAG_PATTERN = re.compile(r"^(?P<method>[A-Z][A-Za-z0-9]*)(?:_t(?P<train_seed>\d+))?$")
 
@@ -145,6 +150,10 @@ class RunPaths:
         self.rl_outputs = self.outputs / "rl_selector"
         self.rl_ckpt = self.checkpoints / "rl_selector" / "ppo_model.pt"
 
+        self.tapt_encoder = self.checkpoints / "tapt" / "encoder"         # 方法 AT 的初始权重（跑完随 checkpoints/ 删除）
+        self.tapt_outputs = self.outputs / "tapt"                          # TAPT 的训练记录
+        self.tapt_probe = self.outputs / "tapt_probe"                      # 可行性测试（只有验证集结果）
+
         self.quality_report = self.outputs / "pseudo_label_quality.json"
         self.sanity_report = self.outputs / "sanity_check.json"
         self.import_marker = self.root / "imported_from.json"
@@ -154,6 +163,7 @@ class RunPaths:
         mapping = {
             "A": None,
             "AC": None,
+            "AT": None,
             "B": self.pseudo / "set_B_conf_top.jsonl",
             "Q": self.pseudo / "set_Q_conf_c_quantile.jsonl",
             "K": self.pseudo / "set_K_conf_topk.jsonl",

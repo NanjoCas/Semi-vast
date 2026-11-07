@@ -1,0 +1,37 @@
+{
+  "run": "r0.10_s42",
+  "method": "AT",
+  "tag": "AT",
+  "seed": 42,
+  "train_seed": 42,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "runs_fc/r0.10_s42/checkpoints/tapt_probe/lr1e-5_m0.30/epoch1",
+  "tapt": {
+    "run": "r0.10_s42",
+    "seed": 42,
+    "start_model": "cross-encoder/nli-deberta-v3-large",
+    "settings": {
+      "lr": 1e-05,
+      "mask_prob": 0.3,
+      "epochs": 10,
+      "batch_size": 32,
+      "head_steps": 200,
+      "head_lr": 0.0001,
+      "warmup_steps": 100,
+      "weight_decay": 0.01,
+      "max_grad_norm": 1.0
+    },
+    "epoch": 1,
+    "full_steps": 120,
+    "pool_size": 3853
+  },
+  "planned_steps": 640,
+  "best_step": 280,
+  "best_val": {
+    "accuracy": 0.5243741765480896,
+    "macro_f1": 0.4893019964355572,
+    "auc": 0.6713222937979856
+  },
+  "train_minutes": 3.0,
+  "uncompiled_frames": 0
+}

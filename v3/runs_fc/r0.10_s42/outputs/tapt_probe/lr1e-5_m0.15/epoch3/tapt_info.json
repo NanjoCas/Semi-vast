@@ -1,0 +1,61 @@
+{
+  "run": "r0.10_s42",
+  "seed": 42,
+  "start_model": "cross-encoder/nli-deberta-v3-large",
+  "settings": {
+    "lr": 1e-05,
+    "mask_prob": 0.15,
+    "epochs": 10,
+    "batch_size": 32,
+    "head_steps": 200,
+    "head_lr": 0.0001,
+    "warmup_steps": 100,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0
+  },
+  "epoch": 3,
+  "full_steps": 360,
+  "pool_size": 3853,
+  "history": [
+    {
+      "phase": "start",
+      "epoch": 0,
+      "step": 0,
+      "dev_mlm_loss": 13.01245247759601
+    },
+    {
+      "phase": "head",
+      "epoch": 0,
+      "step": 200,
+      "train_mlm_loss": 7.478383994102478,
+      "dev_mlm_loss": 6.866178196521236
+    },
+    {
+      "phase": "full",
+      "epoch": 1,
+      "step": 120,
+      "lr": 1e-05,
+      "train_mlm_loss": 6.316492156187693,
+      "dev_mlm_loss": 5.593843992325061,
+      "minutes": 2.39
+    },
+    {
+      "phase": "full",
+      "epoch": 2,
+      "step": 240,
+      "lr": 1e-05,
+      "train_mlm_loss": 5.286255979537964,
+      "dev_mlm_loss": 4.901510931467545,
+      "minutes": 3.83
+    },
+    {
+      "phase": "full",
+      "epoch": 3,
+      "step": 360,
+      "lr": 1e-05,
+      "train_mlm_loss": 4.753869609038035,
+      "dev_mlm_loss": 4.494906221728088,
+      "minutes": 5.24
+    }
+  ]
+}

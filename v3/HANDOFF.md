@@ -1,6 +1,6 @@
 # Semi-vast v3 交接文档
 
-> 更新于 2026-11-07 晚（第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
+> 更新于 2026-11-07 23:30（TAPT 可行性测试完成、设置选定；之前：第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
 
 ## 0. 现状
 
@@ -33,7 +33,7 @@
   - **E1 不成立**：F − E = −0.001，2/5。均值相同（0.564 / 0.565），E 的跨 seed 标准差 0.034，F 为 0.009。E − F100 = +0.017 成立。
   - 机制（事后分析）：只用 NLI 的 teacher 几乎不给 SUPPORTS（F100 集合中 7–8 条，E 中约 85 条，F 中 149–258 条，池中金标签占 45%），detector 随之少预测 SUPPORTS；seed 45 最明显。
   - 新增 2 条 S2 警告（F25 在 s43 / s45 最佳步靠后），对 R1 是保守的。
-  - **下一步是 TAPT（README_v3 13.5）**：脚本还没写（13.6 第 3 步）。
+  - **TAPT（README_v3 13.5、13.5.1）**：已实现（`training/tapt.py`；AT 接入 `train_detector.py`、`run_all.py`、`common/paths.py`，设置写在 `TAPT_SETTINGS`，不进配置，指纹不变）。冒烟测试：流程本身不改变结果（对照 0.5305 vs A 0.5252）；但学习率 3e-5 训练 1 个 epoch 后验证 F1 跌到 0.434（A − 0.091），MLM 很快破坏 NLI 能力。**可行性测试**：第一轮（18:55 – 20:35，`tools/tapt_probe.sh`，seed 42，12 个候选，只看验证集，日志 `logs/tapt_probe.log`）全部低于 A，最好的是 3e-6、1 个 epoch（0.5203 vs A 0.5252）；学习率 3e-5 的验证 F1 在第 10 个 epoch 回升，触发事先写定的补跑条件。**补跑已完成**（20:36 – 23:15，3e-5、100 个 epoch，日志 `logs/tapt_probe_e100.log`）：第 20 个 epoch 之后验证 F1 停在 0.46–0.47，全部比 A 低 0.05 以上。17 个候选按规则**选定 3e-6、遮盖 15%、1 个 epoch**（0.5203），已填进 `TAPT_SETTINGS`、补进 README_v3 13.5.1。下一步：`run_ext_fc.sh` 设 `METHODS=AT` 跑 5 个 seed（日志 `logs/at_fc.log`，约 25 分钟），然后看 `results_fc/summary.md` 第 2b 节的 T1（F − AT），写进 README_v3 13.7。
 - git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。
 
 ## 1. 项目与环境
@@ -125,6 +125,11 @@ NO_SHUTDOWN=1 setsid nohup bash run_full_fc.sh > logs/full_fc.log 2>&1 < /dev/nu
 # 第 13 节的实验（AC、F25 / F75 / F100、E）：进度与中断后续跑（已完成的会跳过）
 bash logs/watch.sh logs/ext_fc.log
 setsid nohup bash run_ext_fc.sh > logs/ext_fc.log 2>&1 < /dev/null &
+
+# TAPT 可行性测试（seed 42，只看验证集）：进度、中断后续跑、汇总
+grep -E "STEP|DONE|epoch [0-9]+/|Training complete" logs/tapt_probe.log | tail
+setsid nohup bash tools/tapt_probe.sh > logs/tapt_probe.log 2>&1 < /dev/null &
+python tools/tapt_probe_report.py --run_dir runs_fc/r0.10_s42      # -> runs_fc/r0.10_s42/outputs/tapt_probe/report.md
 
 # 汇总与配对比较（只读结果，几十秒）
 python run_all.py --config configs/config_fc.yaml --aggregate_only   # -> results_fc/summary.md

@@ -1,0 +1,124 @@
+{
+  "run": "r0.10_s42",
+  "seed": 42,
+  "start_model": "cross-encoder/nli-deberta-v3-large",
+  "settings": {
+    "lr": 3e-06,
+    "mask_prob": 0.15,
+    "epochs": 10,
+    "batch_size": 32,
+    "head_steps": 200,
+    "head_lr": 0.0001,
+    "warmup_steps": 100,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0
+  },
+  "epoch": 10,
+  "full_steps": 1200,
+  "pool_size": 3853,
+  "history": [
+    {
+      "phase": "start",
+      "epoch": 0,
+      "step": 0,
+      "dev_mlm_loss": 13.01245247759601
+    },
+    {
+      "phase": "head",
+      "epoch": 0,
+      "step": 200,
+      "train_mlm_loss": 7.478383994102478,
+      "dev_mlm_loss": 6.866178196521236
+    },
+    {
+      "phase": "full",
+      "epoch": 1,
+      "step": 120,
+      "lr": 3e-06,
+      "train_mlm_loss": 6.6204763650894165,
+      "dev_mlm_loss": 6.149499488592199,
+      "minutes": 2.39
+    },
+    {
+      "phase": "full",
+      "epoch": 2,
+      "step": 240,
+      "lr": 3e-06,
+      "train_mlm_loss": 5.9555403669675195,
+      "dev_mlm_loss": 5.676871598012832,
+      "minutes": 3.83
+    },
+    {
+      "phase": "full",
+      "epoch": 3,
+      "step": 360,
+      "lr": 3e-06,
+      "train_mlm_loss": 5.5924084186553955,
+      "dev_mlm_loss": 5.381814581938584,
+      "minutes": 5.24
+    },
+    {
+      "phase": "full",
+      "epoch": 4,
+      "step": 480,
+      "lr": 3e-06,
+      "train_mlm_loss": 5.329785358905792,
+      "dev_mlm_loss": 5.151797188970143,
+      "minutes": 6.68
+    },
+    {
+      "phase": "full",
+      "epoch": 5,
+      "step": 600,
+      "lr": 3e-06,
+      "train_mlm_loss": 5.134833987553915,
+      "dev_mlm_loss": 4.969790330944657,
+      "minutes": 8.1
+    },
+    {
+      "phase": "full",
+      "epoch": 6,
+      "step": 720,
+      "lr": 3e-06,
+      "train_mlm_loss": 4.954692455132802,
+      "dev_mlm_loss": 4.8228664823827225,
+      "minutes": 9.51
+    },
+    {
+      "phase": "full",
+      "epoch": 7,
+      "step": 840,
+      "lr": 3e-06,
+      "train_mlm_loss": 4.8240041335423784,
+      "dev_mlm_loss": 4.680498216491796,
+      "minutes": 10.93
+    },
+    {
+      "phase": "full",
+      "epoch": 8,
+      "step": 960,
+      "lr": 3e-06,
+      "train_mlm_loss": 4.712637249628703,
+      "dev_mlm_loss": 4.568031665508126,
+      "minutes": 12.34
+    },
+    {
+      "phase": "full",
+      "epoch": 9,
+      "step": 1080,
+      "lr": 3e-06,
+      "train_mlm_loss": 4.555528255303701,
+      "dev_mlm_loss": 4.464705822910229,
+      "minutes": 13.75
+    },
+    {
+      "phase": "full",
+      "epoch": 10,
+      "step": 1200,
+      "lr": 3e-06,
+      "train_mlm_loss": 4.489374458789825,
+      "dev_mlm_loss": 4.369869172674801,
+      "minutes": 15.16
+    }
+  ]
+}

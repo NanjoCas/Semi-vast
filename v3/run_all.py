@@ -12,6 +12,8 @@ run_all.py — v3 一键运行脚本（README_v3 第 5 节）
                             E 另外先在验证集上检查 3 个 NLI 模型的零样本 macro-F1（低于 0.35 即停，README_v3 13.3），
                             再算另外两个模型对池的概率
   5. build_baseline_sets    B / Q / K / F / F25 / F75 / F100 / E / O（以及 W / R）的伪标签集合；每次都重建（几秒钟，结果确定）
+  5b. tapt                  AT 需要：在无标签池上做 MLM 继续预训练（README_v3 13.5，设置见 common/paths.py 的 TAPT_SETTINGS）；
+                            AT 的结果已存在时跳过
   6. train_detector         每个方法 × 每个训练 seed；结果已存在且配置指纹相同才跳过
   7. pseudo_label_quality   用隐藏的金标签评估伪标签与各集合
   8. sanity_check           自动检查 S1–S7，只警告不中断
@@ -52,6 +54,8 @@ from common.paths import (  # noqa: E402
     MAIN_METHODS,
     NLI_POOL_METHODS,
     NO_PSEUDO_METHODS,
+    TAPT_METHODS,
+    TAPT_SETTINGS,
     RunPaths,
     cfg_path,
     detector_tag,
@@ -135,15 +139,30 @@ def check_protocol(cfg: dict, config_arg: str, force_protocol: bool) -> str:
     return fp
 
 
-def detector_done(out_dir: Path, fp: str) -> tuple[bool, str]:
+def tapt_settings_of(result: dict) -> dict | None:
+    return (result.get("tapt") or {}).get("settings")
+
+
+def detector_done(out_dir: Path, fp: str, method: str) -> tuple[bool, str]:
     res_path = out_dir / "test_results.json"
     if not res_path.exists():
         return False, ""
     with open(res_path, encoding="utf-8") as fh:
-        recorded = json.load(fh).get("config_fingerprint")
-    if recorded == fp:
-        return True, f"found {_display(res_path)}"
-    return False, f"已有结果的配置指纹 {recorded} ≠ 当前 {fp}，重跑"
+        result = json.load(fh)
+    recorded = result.get("config_fingerprint")
+    if recorded != fp:
+        return False, f"已有结果的配置指纹 {recorded} ≠ 当前 {fp}，重跑"
+    if method in TAPT_METHODS and tapt_settings_of(result) != tapt_full_settings():
+        return False, f"已有结果的 TAPT 设置 {tapt_settings_of(result)} ≠ 当前 {tapt_full_settings()}，重跑"
+    return True, f"found {_display(res_path)}"
+
+
+def tapt_full_settings() -> dict | None:
+    """TAPT_SETTINGS plus the fixed settings, as tapt.py records them."""
+    if TAPT_SETTINGS is None:
+        return None
+    from training.tapt import FIXED
+    return {**TAPT_SETTINGS, **FIXED}
 
 
 def main() -> None:
@@ -199,6 +218,11 @@ def main() -> None:
         print(f"[INFO] α variants   : {({m: a for m, a in ALPHA_VARIANTS.items() if m in methods})}（README_v3 第 13 节）")
     if needs_ensemble:
         print(f"[INFO] NLI ensemble : {[cfg['models']['nli_model'], *ENSEMBLE_NLI_MODELS]}（方法 E，README_v3 13.2）")
+    if any(m in TAPT_METHODS for m in methods):
+        if TAPT_SETTINGS is None:
+            raise SystemExit("AT 需要 TAPT 的设置：先在 seed 42 上做可行性测试（tools/tapt_probe.sh），"
+                             "把选定的设置补进 README_v3 13.5 与 common/paths.py 的 TAPT_SETTINGS 并提交，再跑 AT。")
+        print(f"[INFO] TAPT         : {tapt_full_settings()}（方法 AT，README_v3 13.5）")
     legacy = [m for m in methods if m in LEGACY_METHODS]
     if legacy:
         print(f"[WARN] {legacy} 仍是 v2 的设计（复合权重用 |LogicScore|、RL 奖励近似常数），尚未按 v3 修订，"
@@ -273,11 +297,25 @@ def main() -> None:
                               "--methods", ",".join(baseline_methods)],
                              None, True)
 
+            tapt_needed = any(
+                m in TAPT_METHODS and not detector_done(paths.detector_outputs(detector_tag(m, seed, ts)), fp, m)[0]
+                for m in methods for ts in [seed, *extra_train_seeds])
+            if tapt_needed:
+                # 已有的 TAPT 权重设置不同（或不完整）时重新训练
+                info_path = paths.tapt_encoder / "tapt_info.json"
+                stale = False
+                if info_path.exists():
+                    with open(info_path, encoding="utf-8") as fh:
+                        stale = json.load(fh).get("settings") != tapt_full_settings()
+                run_step(f"[{tag_run}] TAPT",
+                         [PYTHON, "training/tapt.py", *common, "--seed", str(seed), "--device", device],
+                         info_path, args.force or stale)
+
             for method in methods:
                 for train_seed in [seed, *[s for s in extra_train_seeds if s != seed]]:
                     tag = detector_tag(method, seed, train_seed)
                     out_dir = paths.detector_outputs(tag)
-                    done, why = detector_done(out_dir, fp)
+                    done, why = detector_done(out_dir, fp, method)
                     if done and not args.force:
                         print(f"[SKIP] [{tag_run}] Detector {tag} ({why})")
                         continue

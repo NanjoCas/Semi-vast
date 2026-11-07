@@ -28,12 +28,19 @@ v3 changes vs. v2 (README_v3 section 3):
         to outputs/detector/<method> when train_seed == seed and to
         outputs/detector/<method>_t<train_seed> otherwise.
 
+Method AT (README_v3 13.5) is A with the encoder taken from training/tapt.py (MLM continued pre-training on the
+run's unlabeled pool) instead of the NLI cross-encoder. --encoder_dir points AT at another TAPT encoder and
+--skip_test stops after the dev-set selection without reading the test set; together they are the TAPT
+feasibility test (tools/tapt_probe.sh), whose results go to --out_dir instead of outputs/detector/.
+
 Every method uses the same supervised loss and the same claim+evidence reasoning
 channel for labeled and pseudo-labeled pairs (as in v2).
 
 Usage:
     python training/train_detector.py --run_dir runs/r0.10_s42 --method Q --seed 42 --device cuda
     python training/train_detector.py --run_dir runs/r0.10_s42 --method A --seed 42 --train_seed 1042
+    python training/train_detector.py --run_dir runs_fc/r0.10_s42 --method AT --seed 42 \
+        --encoder_dir <tapt snapshot> --skip_test --out_dir runs_fc/r0.10_s42/outputs/tapt_probe/<name>
 """
 
 from __future__ import annotations
@@ -74,6 +81,7 @@ from common.fingerprint import config_fingerprint  # noqa: E402
 from common.paths import (  # noqa: E402
     ALL_METHODS,
     CLAIM_ONLY_METHODS,
+    TAPT_METHODS,
     RunPaths,
     cfg_path,
     detector_tag,
@@ -478,7 +486,17 @@ def parse_args() -> argparse.Namespace:
                         help="Seed for initialisation / dropout / data order (default: --seed).")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--keep_checkpoint", action="store_true", help="Also write the best weights to checkpoints/.")
-    return parser.parse_args()
+    parser.add_argument("--encoder_dir", type=str, default=None,
+                        help="Method AT only: TAPT encoder to start from (default: <run>/checkpoints/tapt/encoder).")
+    parser.add_argument("--skip_test", action="store_true",
+                        help="Stop after training: no test set is loaded or evaluated (TAPT feasibility test).")
+    parser.add_argument("--out_dir", type=str, default=None, help="Output directory (required with --skip_test).")
+    args = parser.parse_args()
+    if args.encoder_dir and args.method not in TAPT_METHODS:
+        parser.error(f"--encoder_dir is only for {TAPT_METHODS}")
+    if args.skip_test != bool(args.out_dir):
+        parser.error("--skip_test and --out_dir go together (results without a test set must not land in outputs/detector/)")
+    return args
 
 
 def main() -> None:
@@ -507,9 +525,26 @@ def main() -> None:
 
     train_path = paths.labeled_train
     dev_path = labeled_split_path(cfg, "dev")
-    test_path = labeled_split_path(cfg, "test")
+    test_path = None if args.skip_test else labeled_split_path(cfg, "test")
     pseudo_path = paths.pseudo_set(args.method)
-    for p in [train_path, dev_path, test_path] + ([pseudo_path] if pseudo_path else []):
+    tapt_info = None
+    encoder_name = model_cfg.get("nli_model") if bool(train_cfg.get("detector_init_from_nli", False)) else None
+    if args.method in TAPT_METHODS:
+        encoder_dir = Path(args.encoder_dir) if args.encoder_dir else paths.tapt_encoder
+        if not (encoder_dir / "tapt_info.json").exists():
+            log.error("TAPT encoder not found: %s (run training/tapt.py first, README_v3 13.5)", encoder_dir)
+            sys.exit(1)
+        with open(encoder_dir / "tapt_info.json", encoding="utf-8") as fh:
+            tapt_info = json.load(fh)
+        tapt_info.pop("history", None)
+        if tapt_info.get("run") != paths.root.name or tapt_info.get("start_model") != encoder_name:
+            log.error("TAPT encoder %s was trained for run %s from %s, expected run %s from %s", encoder_dir,
+                      tapt_info.get("run"), tapt_info.get("start_model"), paths.root.name, encoder_name)
+            sys.exit(1)
+        encoder_name = str(encoder_dir)
+        log.info("method %s: encoder from TAPT %s (epoch %s, settings %s)", args.method, encoder_dir,
+                 tapt_info.get("epoch"), tapt_info.get("settings"))
+    for p in [train_path, dev_path] + ([test_path] if test_path else []) + ([pseudo_path] if pseudo_path else []):
         if not p.exists():
             log.error("Required file not found: %s", p)
             sys.exit(1)
@@ -538,7 +573,7 @@ def main() -> None:
     ds_kwargs = {"max_length": max_length, "dynamic_padding": dynamic_padding, "claim_only": claim_only}
     train_dataset = ClaimEvidenceDataset(str(train_path), tokenizer, **ds_kwargs)
     dev_dataset = ClaimEvidenceDataset(str(dev_path), tokenizer, **ds_kwargs)
-    test_dataset = ClaimEvidenceDataset(str(test_path), tokenizer, **ds_kwargs)
+    test_dataset = ClaimEvidenceDataset(str(test_path), tokenizer, **ds_kwargs) if test_path else None
     if claim_only:  # README_v3 13.3：确认输入里没有证据（只有一段，即只有一个 [SEP]）
         for name, ds in (("train", train_dataset), ("dev", dev_dataset), ("test", test_dataset)):
             for i in range(len(ds)):
@@ -552,10 +587,10 @@ def main() -> None:
     labeled_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                 drop_last=len(train_dataset) >= batch_size, **loader_kwargs)
     val_loader = DataLoader(dev_dataset, batch_size=batch_size * 2, shuffle=False, **loader_kwargs)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size * 2, shuffle=False, **loader_kwargs)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size * 2, shuffle=False, **loader_kwargs) if test_dataset else None
     _summarize_label_distribution(train_dataset.label_ids, "Labeled train")
 
-    out_dir = paths.detector_outputs(tag)
+    out_dir = Path(args.out_dir) if args.out_dir else paths.detector_outputs(tag)
     pseudo_loader = None
     pseudo_size = 0
     pseudo_counts = None
@@ -593,7 +628,7 @@ def main() -> None:
         lambda_final=float(hyper_cfg.get("lambda_final", 0.7)),
         cache_dir=str(model_cache_dir),
         local_files_only=local_only,
-        encoder_name=model_cfg.get("nli_model") if bool(train_cfg.get("detector_init_from_nli", False)) else None,
+        encoder_name=encoder_name,
         freeze_layers=int(train_cfg.get("detector_freeze_layers", 0)),
     ).to(device).float()
 
@@ -625,6 +660,17 @@ def main() -> None:
     if best["state"] is None:
         log.error("No evaluation was run; nothing to test.")
         sys.exit(1)
+    total_steps, eval_every = training_budget(train_cfg)
+    if args.skip_test:  # TAPT 可行性测试：只记录验证集上的选择结果，不加载测试集
+        val_results = {"run": paths.root.name, "method": args.method, "tag": tag, "seed": seed, "train_seed": train_seed,
+                       "config_fingerprint": fingerprint, "encoder_source": detector.encoder_source, "tapt": tapt_info,
+                       "planned_steps": total_steps, "best_step": best["step"], "best_val": best["val_metrics"],
+                       "train_minutes": round(train_minutes, 1),
+                       "uncompiled_frames": uncompiled_frames() if best.get("torch_compile") else None}
+        with open(out_dir / "val_results.json", "w", encoding="utf-8") as fh:
+            json.dump(val_results, fh, indent=2, ensure_ascii=False)
+        print(json.dumps(val_results, indent=2, ensure_ascii=False))
+        return
     detector.load_state_dict(best["state"])
     if args.keep_checkpoint:
         ckpt_path = paths.detector_ckpt(tag)
@@ -641,7 +687,6 @@ def main() -> None:
         return_predictions=True,
     )
 
-    total_steps, eval_every = training_budget(train_cfg)
     results = {
         "run": paths.root.name,
         "method": args.method,
@@ -651,6 +696,7 @@ def main() -> None:
         "config_fingerprint": fingerprint,
         "encoder_source": detector.encoder_source,
         "frozen_layers": detector.frozen_layers,
+        "tapt": tapt_info,
         "input": "claim" if claim_only else "claim+evidence",
         "total_optimizer_steps": history[-1]["step"] if history else 0,
         "planned_steps": total_steps,
