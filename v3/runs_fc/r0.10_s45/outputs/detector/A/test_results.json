@@ -1,0 +1,42 @@
+{
+  "run": "r0.10_s45",
+  "method": "A",
+  "tag": "A",
+  "seed": 45,
+  "train_seed": 45,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 360,
+  "best_val": {
+    "accuracy": 0.5823451910408433,
+    "macro_f1": 0.5478771876443803,
+    "auc": 0.7016440759040473
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": null,
+  "pseudo_size": 0,
+  "pseudo_label_counts": null,
+  "labeled_size": 398,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1351,
+    241,
+    851
+  ],
+  "train_minutes": 3.0,
+  "checkpointed_layers": 0,
+  "torch_compile": true,
+  "uncompiled_frames": 0,
+  "gpu_peak_gb": 21.2,
+  "accuracy": 0.5329512893982808,
+  "macro_f1": 0.5049781037781448,
+  "auc": 0.6677568948550286
+}

@@ -1,0 +1,36 @@
+{
+  "B": {
+    "confidence_top_fraction": 0.3,
+    "pool_size": 2163,
+    "size": 649,
+    "min_confidence": 0.8692,
+    "labels": {
+      "SUPPORTS": 162,
+      "REFUTES": 298,
+      "NOT_ENOUGH_INFO": 189
+    }
+  },
+  "F": {
+    "teacher": "extractor + NLI",
+    "nli_fusion_alpha": 0.5,
+    "confidence_top_fraction": 0.3,
+    "pool_size": 2163,
+    "size": 649,
+    "min_confidence": 0.8688,
+    "labels": {
+      "SUPPORTS": 109,
+      "REFUTES": 197,
+      "NOT_ENOUGH_INFO": 343
+    },
+    "pool_labels_changed_by_fusion": 959,
+    "set_labels_changed_by_fusion": 0
+  },
+  "O": {
+    "size": 2163,
+    "labels": {
+      "SUPPORTS": 987,
+      "REFUTES": 349,
+      "NOT_ENOUGH_INFO": 827
+    }
+  }
+}

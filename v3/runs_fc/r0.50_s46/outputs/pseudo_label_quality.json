@@ -1,0 +1,187 @@
+{
+  "run": "r0.50_s46",
+  "full_pool": {
+    "size": 2159,
+    "matched": 2159,
+    "accuracy": 0.650301065308013,
+    "balanced_precision": 0.6290664044652651,
+    "per_pseudo_class": {
+      "SUPPORTS": {
+        "predicted": 955,
+        "precision": 0.7340314136125654
+      },
+      "REFUTES": {
+        "predicted": 408,
+        "precision": 0.553921568627451
+      },
+      "NOT_ENOUGH_INFO": {
+        "predicted": 796,
+        "precision": 0.5992462311557789
+      }
+    },
+    "confusion_matrix(rows=gold,cols=pseudo)": [
+      [
+        701,
+        53,
+        227
+      ],
+      [
+        35,
+        226,
+        92
+      ],
+      [
+        219,
+        129,
+        477
+      ]
+    ]
+  },
+  "signal_auroc_for_correctness": {
+    "confidence": 0.6143440689798305,
+    "neg_entropy": 0.6173081639969057,
+    "abs_logic_score": 0.5264608214939341,
+    "direction_consistency": 0.5279381521103376,
+    "discourse_score": 0.4969533593705779,
+    "composite_weight": 0.57896454783872
+  },
+  "signal_auroc_by_source": {
+    "climate_fever": {
+      "confidence": 0.6221122112211221,
+      "neg_entropy": 0.6320735732109796,
+      "abs_logic_score": 0.5290791274249376,
+      "direction_consistency": 0.4883281011027932,
+      "discourse_score": 0.4978266119294856,
+      "composite_weight": 0.5883643242373018
+    },
+    "climatecheck": {
+      "confidence": 0.5826262707115986,
+      "neg_entropy": 0.5852277275274154,
+      "abs_logic_score": 0.49734101096614103,
+      "direction_consistency": 0.5029441487232851,
+      "discourse_score": 0.4933312655086849,
+      "composite_weight": 0.5447950852477387
+    },
+    "scifact": {
+      "confidence": 0.6846387154326494,
+      "neg_entropy": 0.6844959857270294,
+      "abs_logic_score": 0.592149866190901,
+      "direction_consistency": 0.6542372881355932,
+      "discourse_score": 0.544085637823372,
+      "composite_weight": 0.6484210526315789
+    }
+  },
+  "methods": {
+    "B": {
+      "size": 648,
+      "matched": 648,
+      "accuracy": 0.7314814814814815,
+      "balanced_precision": 0.7588032504309283,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 124,
+          "precision": 0.8870967741935484
+        },
+        "REFUTES": {
+          "predicted": 262,
+          "precision": 0.6603053435114504
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 262,
+          "precision": 0.7290076335877863
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          110,
+          24,
+          50
+        ],
+        [
+          1,
+          173,
+          21
+        ],
+        [
+          13,
+          65,
+          191
+        ]
+      ]
+    },
+    "F": {
+      "size": 648,
+      "matched": 648,
+      "accuracy": 0.7299382716049383,
+      "balanced_precision": 0.7700629558581179,
+      "per_pseudo_class": {
+        "SUPPORTS": {
+          "predicted": 99,
+          "precision": 0.9090909090909091
+        },
+        "REFUTES": {
+          "predicted": 201,
+          "precision": 0.7114427860696517
+        },
+        "NOT_ENOUGH_INFO": {
+          "predicted": 348,
+          "precision": 0.6896551724137931
+        }
+      },
+      "confusion_matrix(rows=gold,cols=pseudo)": [
+        [
+          90,
+          7,
+          75
+        ],
+        [
+          0,
+          143,
+          33
+        ],
+        [
+          9,
+          51,
+          240
+        ]
+      ]
+    }
+  },
+  "filtered_pool(weight>=threshold)": {
+    "size": 1760,
+    "matched": 1760,
+    "accuracy": 0.6761363636363636,
+    "balanced_precision": 0.6561489746430264,
+    "per_pseudo_class": {
+      "SUPPORTS": {
+        "predicted": 751,
+        "precision": 0.7709720372836218
+      },
+      "REFUTES": {
+        "predicted": 382,
+        "precision": 0.5706806282722513
+      },
+      "NOT_ENOUGH_INFO": {
+        "predicted": 627,
+        "precision": 0.6267942583732058
+      }
+    },
+    "confusion_matrix(rows=gold,cols=pseudo)": [
+      [
+        579,
+        49,
+        161
+      ],
+      [
+        24,
+        218,
+        73
+      ],
+      [
+        148,
+        115,
+        393
+      ]
+    ]
+  }
+}

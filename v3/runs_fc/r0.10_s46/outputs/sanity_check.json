@@ -1,0 +1,49 @@
+{
+  "run": "r0.10_s46",
+  "config_fingerprint": "df8ea323b54a",
+  "checks": [
+    {
+      "id": "S1",
+      "status": "ok",
+      "detail": "所有 detector 都是 640 步"
+    },
+    {
+      "id": "S2",
+      "status": "warn",
+      "detail": "最佳验证点在最后 10% 的步数内，可能未收敛：{'F': '600/640'}"
+    },
+    {
+      "id": "S3",
+      "status": "ok",
+      "detail": "没有类别塌缩"
+    },
+    {
+      "id": "S4",
+      "status": "skip",
+      "detail": "Q 或 K 的集合不存在"
+    },
+    {
+      "id": "S5",
+      "status": "ok",
+      "detail": "所有结果的配置指纹都是 df8ea323b54a"
+    },
+    {
+      "id": "S6",
+      "status": "ok",
+      "detail": "|B| = |F| = 1164 = round(0.3 × 3880)"
+    },
+    {
+      "id": "S7",
+      "status": "ok",
+      "detail": "detector 结果与当前伪标签集合一致"
+    },
+    {
+      "id": "S8",
+      "status": "ok",
+      "detail": "4 个 detector 的所有层都已编译"
+    }
+  ],
+  "warnings": [
+    "S2 最佳验证点在最后 10% 的步数内，可能未收敛：{'F': '600/640'}"
+  ]
+}

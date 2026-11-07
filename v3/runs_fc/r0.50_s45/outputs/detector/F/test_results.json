@@ -1,0 +1,46 @@
+{
+  "run": "r0.50_s45",
+  "method": "F",
+  "tag": "F",
+  "seed": 45,
+  "train_seed": 45,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 560,
+  "best_val": {
+    "accuracy": 0.6495388669301713,
+    "macro_f1": 0.6209539619970562,
+    "auc": 0.8002091672523383
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v3/runs_fc/r0.50_s45/pseudo/set_F_fused_top.jsonl",
+  "pseudo_size": 649,
+  "pseudo_label_counts": [
+    109,
+    197,
+    343
+  ],
+  "labeled_size": 2126,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1216,
+    350,
+    877
+  ],
+  "train_minutes": 8.6,
+  "checkpointed_layers": 0,
+  "torch_compile": true,
+  "uncompiled_frames": 0,
+  "gpu_peak_gb": 69.4,
+  "accuracy": 0.6250511665984445,
+  "macro_f1": 0.6114563574073434,
+  "auc": 0.7848032520510747
+}

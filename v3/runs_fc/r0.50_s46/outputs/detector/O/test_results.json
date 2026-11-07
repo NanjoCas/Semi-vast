@@ -1,0 +1,46 @@
+{
+  "run": "r0.50_s46",
+  "method": "O",
+  "tag": "O",
+  "seed": 46,
+  "train_seed": 46,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 560,
+  "best_val": {
+    "accuracy": 0.6627140974967062,
+    "macro_f1": 0.6409575859673383,
+    "auc": 0.8089201518514004
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": "/root/autodl-tmp/Semi-vast/v3/runs_fc/r0.50_s46/pseudo/set_O_oracle.jsonl",
+  "pseudo_size": 2159,
+  "pseudo_label_counts": [
+    981,
+    353,
+    825
+  ],
+  "labeled_size": 2130,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1192,
+    347,
+    904
+  ],
+  "train_minutes": 8.6,
+  "checkpointed_layers": 0,
+  "torch_compile": true,
+  "uncompiled_frames": 0,
+  "gpu_peak_gb": 69.4,
+  "accuracy": 0.6361031518624641,
+  "macro_f1": 0.6222100365717181,
+  "auc": 0.7902875739971229
+}

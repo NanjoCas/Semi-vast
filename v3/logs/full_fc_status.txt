@@ -1,0 +1,14 @@
+[full_fc] 2026-11-06 00:31:49 启动（config configs/config_fc.yaml，NO_SHUTDOWN=0）
+[full_fc] 2026-11-06 00:31:49 等待 ratio 0.1 的进程 12585 结束
+[full_fc] 2026-11-06 02:50:49 开始 ratio 0.1（补跑 / 确认）
+[full_fc] 2026-11-06 02:51:33 完成 ratio 0.1（补跑 / 确认）
+[full_fc] 2026-11-06 02:51:33 开始 ratio 0.25
+[full_fc] 2026-11-06 05:57:37 完成 ratio 0.25
+[full_fc] 2026-11-06 05:57:37 开始 ratio 0.5
+[full_fc] 2026-11-06 09:13:45 完成 ratio 0.5
+[full_fc] 2026-11-06 09:13:45 开始 汇总全部 ratio
+[full_fc] 2026-11-06 09:14:25 完成 汇总全部 ratio
+[full_fc] 2026-11-06 09:14:25 开始 ratio 0.1 配对比较（runs_f vs runs_fc）
+[full_fc] 2026-11-06 09:14:25 完成 ratio 0.1 配对比较（runs_f vs runs_fc）
+[full_fc] 2026-11-06 09:14:25 全部结束：没有失败的阶段
+[full_fc] 2026-11-06 09:14:25 关机
