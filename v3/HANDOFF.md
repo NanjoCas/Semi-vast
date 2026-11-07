@@ -26,6 +26,7 @@
   - 更正：README_v3 10.9 原来写"进入 F 的样本 5 个 seed 都没有被融合改动标签"，实际 seed 46 有 76 / 1164 条（已更正；`../history.md` 同步更正）。
 - **文献检索（2026-11-06）**：`../LITERATURE_REVIEW.md`（在线文档 https://claude.ai/artifact/J7HyzwS86S2Cwnc7td551N ）。方法 F 有很接近的前人工作（Folino & Pontieri 2026、VerifyMatch 2024、MultiMatch 2025），论文需要正面比较，并补上只看 claim 的基线和 TAPT 等外部基线。
 - **第 5 节已全部完成；下一步见第 6 节。**
+- **外部基线与 α 敏感性（2026-11-07，项目负责人决定）**：不补 ratio 0.05；做第 6 节第 1–4 项（只看 claim 的基线 AC、α 敏感性 F25 / F75 / F100、多 NLI 集成 E、TAPT 的 AT）。方法、检验与判据在运行之前写进 README_v3 第 13 节并提交。
 - git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。
 
 ## 1. 项目与环境
@@ -131,6 +132,8 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 
 ## 6. 下一步（按优先级；改代码前先确认没有任务在跑）
 
+第 1–4 项的设计与事先确定的检验见 README_v3 第 13 节（2026-11-07）。
+
 下面的实验都和 `runs_fc` 的 A / F 比较，所以都用 `config_fc.yaml` 的训练协议，ratio 0.1、seed 42–46。全量实验表明 F 相对 B 的优势只在 ratio 0.1 成立（README_v3 12.6），所以这些实验都放在 ratio 0.1 上做，不需要在 0.25 / 0.5 上重复。
 
 | 优先级 | 任务 | 做法 | 代价 | 依据 |
@@ -148,8 +151,8 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 ## 7. 待决问题（需要项目负责人决定，建议和导师确认）
 
 - 论文定位：建议写成"证据感知的逻辑 teacher 用于伪标签选择"，RL 作为负面结果或放进附录（与开题报告的差异要确认）。全量实验后，建议主要结论限定在低标注比例（ratio 0.1），ratio 0.25 / 0.5 作为"teacher 变强后融合不再有额外作用"的分析（README_v3 12.6）。
-- 是否补 ratio 0.05（第 6 节第 6 项）。
-- 外部基线的范围：第 6 节 1–3 必做；4、7 做不做。
+- ~~是否补 ratio 0.05~~：2026-11-07 决定不补。
+- 外部基线的范围：2026-11-07 决定做第 6 节 1–4 项（README_v3 第 13 节）；7（标准半监督基线）待定。
 - 泛化测试集：是否用 HealthFC（健康领域，标签映射待核对）。
 - α 是否按来源分别设定：会多一个超参数，选择规则要事先写定，避免在测试集上挑。
 - Climate-FEVER 的 DISPUTED 处理（目前丢弃）。
