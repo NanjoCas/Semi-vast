@@ -9,7 +9,7 @@ v2 每跑一轮都要人工翻日志才发现问题（O ≈ A、L 只预测出 3
   S3 没有类别塌缩：测试集上每类的预测数 ≥ 该类金标签数的 50%
   S4 Q 与 K 的伪标签集合规模相同
   S5 detector 结果记录的配置指纹与当前配置一致
-  S6 B 的规模等于 round(confidence_top_fraction × 池大小)
+  S6 B / F / F25 / F75 / F100 的规模等于 round(confidence_top_fraction × 池大小)；E 不超过它
   S7 detector 结果中的伪标签条数与当前的伪标签集合文件一致（集合重建后没有沿用旧结果）
   S8 打开 torch.compile 时，所有层都被编译了（没有因超过重编译上限而退回 eager，README_v3 第 12 节）
 
@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from common.data_utils import ID2LABEL, NUM_LABELS  # noqa: E402
 from common.fingerprint import config_fingerprint  # noqa: E402
-from common.paths import RunPaths, load_config, parse_detector_tag  # noqa: E402
+from common.paths import ALPHA_VARIANTS, RunPaths, load_config, parse_detector_tag  # noqa: E402
 
 
 def _count_lines(path: Path) -> int | None:
@@ -125,21 +125,25 @@ def check_run(cfg: dict, run_dir: str | Path, late_fraction: float = 0.1, collap
         else:
             add("S5", "ok", f"所有结果的配置指纹都是 {current_fp}")
 
-    # S6 B (and F) size
+    # S6 B / F / F25 / F75 / F100 size (E: at most the same size; smaller when too few pairs agree)
     npool = _count_lines(paths.pseudo_pool)
     frac = cfg.get("experiment", {}).get("confidence_top_fraction")
-    sizes = {m: _count_lines(paths.pseudo_set(m)) for m in ("B", "F")}
+    sizes = {m: _count_lines(paths.pseudo_set(m)) for m in ("B", "F", *ALPHA_VARIANTS)}
     sizes = {m: n for m, n in sizes.items() if n is not None}
+    n_e = _count_lines(paths.pseudo_set("E"))
     if not sizes or npool is None or frac is None:
         add("S6", "skip", "B / F 的集合或伪标签池不存在")
     else:
         expected = int(round(npool * float(frac)))
         bad = {m: n for m, n in sizes.items() if n != expected}
+        if n_e is not None and n_e > expected:
+            bad["E"] = n_e
         names = " = ".join(f"|{m}|" for m in sizes)
+        e_note = "" if n_e is None else (f"；|E| = {n_e}" + ("" if n_e == expected else "（一致的样本不足，全部保留）"))
         if bad:
             add("S6", "warn", f"round({frac} × {npool}) = {expected}，但 " + "，".join(f"|{m}| = {n}" for m, n in bad.items()))
         else:
-            add("S6", "ok", f"{names} = {expected} = round({frac} × {npool})")
+            add("S6", "ok", f"{names} = {expected} = round({frac} × {npool}){e_note}")
 
     # S7 detector results match the current pseudo sets
     stale = {}

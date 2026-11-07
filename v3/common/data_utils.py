@@ -119,9 +119,11 @@ class ClaimEvidenceDataset(Dataset):
         max_evidences: int = 5,  # evidence lists are already capped by data.max_evidences in build_labeled.py
         require_label: bool = True,
         dynamic_padding: bool = False,
+        claim_only: bool = False,  # 只输入 claim、不给证据（只看 claim 的基线 AC，README_v3 第 13 节）
     ) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.claim_only = claim_only
         # True: return unpadded sequences; the DataLoader must use DynamicPaddingCollator.
         self.dynamic_padding = dynamic_padding
         self.evidence_sep = evidence_sep
@@ -149,7 +151,7 @@ class ClaimEvidenceDataset(Dataset):
         rec = self.records[idx]
         encoding = self.tokenizer(
             rec.get("claim", ""),
-            self.evidence_text(rec),
+            None if self.claim_only else self.evidence_text(rec),
             max_length=self.max_length,
             padding=False if self.dynamic_padding else "max_length",
             truncation=True,

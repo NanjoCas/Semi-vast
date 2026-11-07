@@ -13,6 +13,10 @@ build_baseline_sets.py (v3)
     F  方向一（README_v3 10.6）：logic-aware teacher。伪标签与置信度来自 extractor 与 NLI 的融合
        p = (1 − α)·p_extractor + α·p_NLI（α = teacher.nli_fusion_alpha，NLI 的蕴含 / 矛盾 / 中立对应 SUP / REF / NEI），
        按融合后的置信度取前 confidence_top_fraction，权重 1.0。需要 pseudo/nli_probs.jsonl（training/compute_nli_probs.py）。
+    F25 / F75 / F100  与 F 相同，α = 0.25 / 0.75 / 1.0（α 敏感性，README_v3 第 13 节；α = 1.0 即只用 NLI）。
+    E  多 NLI 集成（README_v3 13.2，仿 Folino & Pontieri 2026）：models.nli_model 与 ENSEMBLE_NLI_MODELS 共 3 个模型零样本标注，
+       三者 argmax 一致才保留，伪标签取一致的类别；按三者对该类概率的平均值排序，取池的前 confidence_top_fraction
+       （一致的样本不够时全部保留），权重 1.0。不用 extractor。
     O  Oracle：整个无标签池使用金标签，权重 1.0 —— 半监督方法能达到的上界。
 
     W / R 沿用 v2 的设计（尚未按 v3 重新设计，结论不可用，见 README_v3 第 8 节）：
@@ -41,10 +45,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from common.data_utils import ID2LABEL, LABEL2ID, direction_consistency, label_to_id, load_jsonl, save_jsonl  # noqa: E402
-from common.paths import RunPaths, load_config, nli_fusion_alpha  # noqa: E402
+from common.paths import ALPHA_VARIANTS, ENSEMBLE_NLI_MODELS, RunPaths, load_config, nli_fusion_alpha  # noqa: E402
 
 KEEP_FIELDS = ("id", "claim", "evidence", "pseudo_label", "weight", "confidence", "logic_score", "source")
-BUILDABLE = ("B", "Q", "K", "F", "W", "R", "O")
+BUILDABLE = ("B", "Q", "K", "F", *ALPHA_VARIANTS, "E", "W", "R", "O")
 
 
 def slim(rec: dict, **overrides) -> dict:
@@ -96,12 +100,37 @@ def fuse_teacher(pool: list[dict], nli: dict[str, list[float]], alpha: float) ->
     return fused
 
 
+def load_nli(path: Path) -> dict[str, list[float]]:
+    if not path.exists():
+        raise SystemExit(f"{path} not found; run training/compute_nli_probs.py --run_dir first")
+    return {str(r["id"]): r["probs"] for r in load_jsonl(path)}
+
+
+def ensemble_agreement(pool: list[dict], nli_by_model: dict[str, dict[str, list[float]]]) -> list[dict]:
+    """方法 E：所有 NLI 模型的 argmax 一致的样本；伪标签 = 一致的类别，置信度 = 各模型对该类概率的平均值。"""
+    agreed = []
+    for r in pool:
+        probs = []
+        for model, nli in nli_by_model.items():
+            if str(r["id"]) not in nli:
+                raise SystemExit(f"pool record {r['id']} has no NLI probabilities from {model}")
+            probs.append(np.asarray(nli[str(r["id"])], dtype=float))
+        labels = {int(p.argmax()) for p in probs}
+        if len(labels) != 1:
+            continue
+        k = labels.pop()
+        agreed.append({**r, "pseudo_label": k, "confidence": float(np.mean([p[k] for p in probs])),
+                       "extractor_label": label_to_id(r["pseudo_label"]),
+                       "ensemble_probs": [[round(float(x), 6) for x in p] for p in probs]})
+    return agreed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build pseudo-label sets for ablation methods B/Q/K/F/W/R/O.")
     parser.add_argument("--config", type=str, default="configs/config.yaml")
     parser.add_argument("--run_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--methods", type=str, default="B,Q,K,O", help="Comma-separated subset of B,Q,K,F,W,R,O.")
+    parser.add_argument("--methods", type=str, default="B,Q,K,O", help=f"Comma-separated subset of {','.join(BUILDABLE)}.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -139,21 +168,41 @@ def main() -> None:
                           "min_confidence": round(float(k_src[-1]["confidence"]), 4) if k_src else None,
                           "labels": label_dist(kept)}
 
-    if "F" in methods:
+    fusion = {m: (nli_fusion_alpha(cfg) if m == "F" else ALPHA_VARIANTS[m]) for m in ("F", *ALPHA_VARIANTS) if m in methods}
+    for method, alpha in fusion.items():
         fraction = float(exp_cfg["confidence_top_fraction"])
-        alpha = nli_fusion_alpha(cfg)
         pool = load_jsonl(paths.pseudo_pool)
-        nli = {str(r["id"]): r["probs"] for r in load_jsonl(paths.nli_probs)}
+        nli = load_nli(paths.nli_probs)
         fused_pool = fuse_teacher(pool, nli, alpha)
         f_set = select_top_fraction(fused_pool, fraction)
+        if alpha == 1.0 and any(r["pseudo_label"] != int(np.argmax(nli[str(r["id"])])) for r in f_set):
+            raise SystemExit(f"{method}: α = 1 but the pseudo labels differ from the NLI argmax")  # README_v3 13.3
         kept = [slim(r, weight=1.0, extractor_label=r["extractor_label"], fused_probs=r["fused_probs"]) for r in f_set]
-        save_jsonl(kept, paths.pseudo_set("F"))
-        stats["F"] = {"teacher": "extractor + NLI", "nli_fusion_alpha": alpha, "confidence_top_fraction": fraction,
-                      "pool_size": len(pool), "size": len(kept),
-                      "min_confidence": round(float(f_set[-1]["confidence"]), 4) if f_set else None,
+        save_jsonl(kept, paths.pseudo_set(method))
+        stats[method] = {"teacher": "NLI only" if alpha == 1.0 else "extractor + NLI", "nli_fusion_alpha": alpha,
+                         "confidence_top_fraction": fraction, "pool_size": len(pool), "size": len(kept),
+                         "min_confidence": round(float(f_set[-1]["confidence"]), 4) if f_set else None,
+                         "labels": label_dist(kept),
+                         "pool_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in fused_pool),
+                         "set_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in f_set)}
+
+    if "E" in methods:
+        fraction = float(exp_cfg["confidence_top_fraction"])
+        pool = load_jsonl(paths.pseudo_pool)
+        models = [cfg["models"]["nli_model"], *ENSEMBLE_NLI_MODELS]
+        nli_by_model = {m: load_nli(paths.pool_nli_probs(None if m == models[0] else m)) for m in models}
+        agreed = ensemble_agreement(pool, nli_by_model)
+        n_target = int(round(len(pool) * fraction))
+        e_set = rank_by_confidence(agreed)[:n_target]
+        kept = [slim(r, weight=1.0, extractor_label=r["extractor_label"], ensemble_probs=r["ensemble_probs"]) for r in e_set]
+        save_jsonl(kept, paths.pseudo_set("E"))
+        stats["E"] = {"teacher": "NLI ensemble (agreement)", "models": models, "confidence_top_fraction": fraction,
+                      "pool_size": len(pool), "agreed": len(agreed), "target_size": n_target, "size": len(kept),
+                      "min_confidence": round(float(e_set[-1]["confidence"]), 4) if e_set else None,
                       "labels": label_dist(kept),
-                      "pool_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in fused_pool),
-                      "set_labels_changed_by_fusion": sum(r["pseudo_label"] != r["extractor_label"] for r in f_set)}
+                      "set_labels_differ_from_extractor": sum(r["pseudo_label"] != r["extractor_label"] for r in e_set)}
+        if len(agreed) < n_target:
+            print(f"[build_baseline_sets] E: only {len(agreed)} agreed pairs (< {n_target}); keeping all of them")
 
     if "W" in methods:
         filtered = load_jsonl(paths.pseudo_filtered)

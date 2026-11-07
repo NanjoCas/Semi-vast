@@ -11,7 +11,7 @@ Per-run layout (one run = one (label_ratio, seed) pair):
     │   ├── labeled_train.jsonl      有标签部分
     │   ├── unlabeled_pool.jsonl     无标签池：claim + evidence，不含标签
     │   └── unlabeled_gold.jsonl     无标签池的金标签，仅供评估/Oracle 使用
-    ├── pseudo/                      伪标签池、NLI 三类概率（方法 F）与各方法的伪标签集合
+    ├── pseudo/                      伪标签池、NLI 三类概率（方法 F；方法 E 的另外两个模型为 nli_probs__<模型>.jsonl）与各方法的伪标签集合
     ├── checkpoints/                 extractor / RL 权重（默认跑完即删；detector 的最佳权重只保存在内存中）
     └── outputs/
         ├── extractor/               extractor 训练记录
@@ -36,10 +36,16 @@ DEFAULT_CONFIG = ROOT / "configs" / "config.yaml"
 # Ablation methods (see training/build_baseline_sets.py and README_v3.md).
 MAIN_METHODS = ["A", "B", "Q", "K", "O"]
 LEGACY_METHODS = ["W", "R", "C"]          # v2 设计，尚未按 v3 重新设计（README_v3 第 8 节）
-ALL_METHODS = ["A", "B", "Q", "K", "F", "W", "R", "C", "O"]
+ALL_METHODS = ["A", "AC", "B", "Q", "K", "F", "F25", "F75", "F100", "E", "W", "R", "C", "O"]
 FUSION_METHODS = ["F"]                    # 方向一：extractor + NLI 融合的 teacher（README_v3 10.6），需要 teacher.nli_fusion_alpha
+# README_v3 第 13 节。α 与集成模型写在这里而不进配置：配置里新增任何键都会改变指纹，使已有结果失效。
+ALPHA_VARIANTS = {"F25": 0.25, "F75": 0.75, "F100": 1.0}   # 与 F 相同，只是 α 不同（α = 1.0 即只用 NLI）
+CLAIM_ONLY_METHODS = ["AC"]               # 与 A 相同，但 detector 只输入 claim
+ENSEMBLE_NLI_MODELS = ["facebook/bart-large-mnli", "FacebookAI/roberta-large-mnli"]  # 方法 E：加上 models.nli_model 共 3 个
+NLI_POOL_METHODS = [*FUSION_METHODS, *ALPHA_VARIANTS, "E"]  # 需要无标签池的 NLI 概率
+NO_PSEUDO_METHODS = ["A", *CLAIM_ONLY_METHODS]
 
-_TAG_PATTERN = re.compile(r"^(?P<method>[A-Z])(?:_t(?P<train_seed>\d+))?$")
+_TAG_PATTERN = re.compile(r"^(?P<method>[A-Z][A-Za-z0-9]*)(?:_t(?P<train_seed>\d+))?$")
 
 
 def load_config(path: str | Path | None = None) -> dict:
@@ -66,9 +72,15 @@ def labeled_split_path(cfg: dict, split: str) -> Path:
     return cfg_path(cfg, "processed_dir") / "labeled" / f"{split}.jsonl"
 
 
-def nli_split_path(cfg: dict, split: str) -> Path:
-    """NLI probabilities of a labeled split (training/compute_nli_probs.py; used by the A⊕NLI control)."""
-    return cfg_path(cfg, "processed_dir") / "nli" / f"{split}.jsonl"
+def nli_model_slug(model_name: str) -> str:
+    return model_name.replace("/", "--")
+
+
+def nli_split_path(cfg: dict, split: str, model_name: str | None = None) -> Path:
+    """NLI probabilities of a labeled split (training/compute_nli_probs.py; used by the A⊕NLI control).
+    model_name: None or models.nli_model for the LogicScore model, otherwise one of the method-E models."""
+    suffix = "" if model_name in (None, cfg["models"]["nli_model"]) else f"__{nli_model_slug(model_name)}"
+    return cfg_path(cfg, "processed_dir") / "nli" / f"{split}{suffix}.jsonl"
 
 
 def nli_fusion_alpha(cfg: dict) -> float:
@@ -141,10 +153,13 @@ class RunPaths:
         """Pseudo-label file consumed by the detector for each ablation method."""
         mapping = {
             "A": None,
+            "AC": None,
             "B": self.pseudo / "set_B_conf_top.jsonl",
             "Q": self.pseudo / "set_Q_conf_c_quantile.jsonl",
             "K": self.pseudo / "set_K_conf_topk.jsonl",
             "F": self.pseudo / "set_F_fused_top.jsonl",
+            **{m: self.pseudo / f"set_{m}_fused_top.jsonl" for m in ALPHA_VARIANTS},
+            "E": self.pseudo / "set_E_nli_ensemble.jsonl",
             "W": self.pseudo / "set_W_weighted.jsonl",
             "R": self.pseudo / "set_R_random.jsonl",
             "C": self.rl_selected,
@@ -153,6 +168,12 @@ class RunPaths:
         if method not in mapping:
             raise ValueError(f"Unknown method '{method}'. Expected one of {sorted(mapping)}")
         return mapping[method]
+
+    def pool_nli_probs(self, model_name: str | None = None) -> Path:
+        """NLI probabilities of the pool: nli_probs.jsonl for the LogicScore model (None), nli_probs__<model>.jsonl for the method-E models."""
+        if model_name is None:
+            return self.nli_probs
+        return self.pseudo / f"nli_probs__{nli_model_slug(model_name)}.jsonl"
 
     def detector_outputs(self, tag: str) -> Path:
         return self.outputs / "detector" / tag

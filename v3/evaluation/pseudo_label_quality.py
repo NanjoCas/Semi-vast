@@ -4,7 +4,7 @@ pseudo_label_quality.py
 用无标签池被隐藏的金标签，直接评估伪标签与各选择策略的质量：
 
   1. 整个池的伪标签准确率（总体 / 分类别 / 混淆矩阵）
-  2. 每个方法的伪标签集合（B / Q / K / W / R / C）的规模、准确率、平衡后准确率（各伪标签类别精度的平均）、类别分布
+  2. 每个方法的伪标签集合（B / Q / K / F / F25 / F75 / F100 / E / W / R / C）的规模、准确率、平衡后准确率（各伪标签类别精度的平均）、类别分布
   3. 各打分信号区分"伪标签对 / 错"的能力（AUROC），整体和按来源（source）分别计算：
        confidence、-entropy、|LogicScore|、方向一致性 c、discourse_score、复合 weight
      |LogicScore| 的 AUROC ≈ 0.5 说明它对挑选正确伪标签没有帮助；c 是带方向的版本（见 data_utils.direction_consistency）。
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from common.data_utils import ID2LABEL, LABEL2ID, direction_consistency, label_to_id, load_jsonl  # noqa: E402
-from common.paths import RunPaths  # noqa: E402
+from common.paths import ALPHA_VARIANTS, RunPaths  # noqa: E402
 
 
 def accuracy_report(records: list[dict], gold: dict[str, int]) -> dict:
@@ -92,7 +92,7 @@ def main() -> None:
     }
     if paths.pseudo_filtered.exists():
         report["filtered_pool(weight>=threshold)"] = accuracy_report(load_jsonl(paths.pseudo_filtered), gold)
-    for method in ("B", "Q", "K", "F", "W", "R", "C"):
+    for method in ("B", "Q", "K", "F", *ALPHA_VARIANTS, "E", "W", "R", "C"):
         p = paths.pseudo_set(method)
         if p is not None and p.exists():
             report["methods"][method] = accuracy_report(load_jsonl(p), gold)
@@ -105,7 +105,7 @@ def main() -> None:
     print(f"[pseudo_label_quality] {paths.root.name}")
     print(f"  full pool accuracy : {report['full_pool'].get('accuracy', float('nan')):.4f} (n={report['full_pool']['size']})")
     for m, r in report["methods"].items():
-        print(f"  set {m:<2} accuracy    : {r.get('accuracy', float('nan')):.4f} (n={r['size']})")
+        print(f"  set {m:<4} accuracy  : {r.get('accuracy', float('nan')):.4f} (n={r['size']})")
     print(f"  signal AUROC       : {report['signal_auroc_for_correctness']}")
     print(f"  -> {out}")
 

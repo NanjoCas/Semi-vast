@@ -22,6 +22,9 @@ aggregate_results.py (v3)
 每个 A（及其重复训练）另外生成一个不训练的对照 "A⊕NLI"：A 的测试概率与 NLI 概率按同一个 α 融合后取 argmax。
 它和普通的组一样进入总表、检验（F3：F − A⊕NLI）和训练噪声表。
 
+第 13 节（README_v3 13.4）的检验单独计算（另一个随机数生成器，已有检验的 CI 不变）：X1、R1–R3、E1、T1 和参考比较；
+另外在 α ∈ {0 (B), 0.25, 0.5 (F), 0.75, 1.0} 中按 5 个 seed 平均的最佳验证 macro-F1 选 α（不看测试集），检验它 − A。
+
 只用主训练 seed（训练 seed 等于划分 seed，目录名为方法名本身）的结果做比较；<方法>_t<seed> 的重复训练
 只进入训练噪声表。不同配置指纹的结果混在一起时报错（--allow_mixed 可跳过）。
 
@@ -52,6 +55,7 @@ sys.path.insert(0, str(ROOT))
 from common.data_utils import load_jsonl  # noqa: E402
 from common.paths import (  # noqa: E402
     ALL_METHODS,
+    ALPHA_VARIANTS,
     RunPaths,
     cfg_path,
     labeled_split_path,
@@ -64,10 +68,15 @@ RUN_PATTERN = re.compile(r"^r(?P<ratio>[0-9.]+)_s(?P<seed>\d+)$")
 METHOD_NAMES = {
     "A": "A 纯监督",
     "A⊕NLI": "A⊕NLI 对照（测试时融合 NLI，不用伪标签）",
+    "AC": "AC 只看 claim（不给证据）",
     "B": "B 置信度前 30%",
     "Q": "Q 置信度 + 类内 c 分位（L-q）",
     "K": "K 同规模置信度对照",
     "F": "F 融合 teacher（extractor + NLI）前 30%",
+    "F25": "F25 融合 teacher，α = 0.25",
+    "F75": "F75 融合 teacher，α = 0.75",
+    "F100": "F100 只用 NLI 的 teacher（α = 1）",
+    "E": "E 多 NLI 集成（3 个模型一致）前 30%",
     "W": "W 复合权重（v2 设计）",
     "R": "R 随机（v2 设计）",
     "C": "C RL（v2 设计）",
@@ -82,6 +91,20 @@ HYPOTHESES = [
     ("F2", "F", "B", "方向一：融合 teacher 是否优于只用 extractor 的 teacher"),
     ("F3", "F", "A⊕NLI", "方向一：提升是否来自半监督，而不只是 NLI 本身（对照在测试时直接融合 NLI）"),
     ("—", "O", "A", "上界：半监督最多能提升多少"),
+]
+# README_v3 13.4 (written before the runs). Computed after HYPOTHESES with a separate generator.
+HYPOTHESES_13 = [
+    ("X1", "A", "AC", "detector 是否用上了证据（主要）"),
+    ("R1", "F25", "A", "F 的提升是否只在 α = 0.5 时成立：α = 0.25（主要）"),
+    ("R2", "F75", "A", "同上：α = 0.75（主要）"),
+    ("R3", "F", "F100", "extractor 在融合中有没有贡献（主要）"),
+    ("E1", "F", "E", "F 是否优于最接近的前人做法：多个 NLI 模型一致才保留（主要）"),
+    ("T1", "F", "AT", "F 是否优于只用无标签数据继续预训练（TAPT，主要）"),
+    ("—", "F100", "A", "只用 NLI 的 teacher 是否有效（参考）"),
+    ("—", "E", "A", "多 NLI 集成是否有效（参考）"),
+    ("—", "E", "F100", "再加两个 NLI 模型做一致性筛选有没有用（参考）"),
+    ("—", "AT", "A", "TAPT 是否有效（参考）"),
+    ("—", "F", "AC", "参考"),
 ]
 NLI_CONTROL = "A⊕NLI"                     # derived, untrained control (see module docstring)
 METHOD_ORDER = ["A", NLI_CONTROL, *[m for m in ALL_METHODS if m != "A"]]
@@ -286,29 +309,59 @@ def main() -> None:
         summary_rows.append(entry)
 
     # ---- pre-registered hypotheses ----
+    def contrast(ratio: float, hid: str, a: str, b: str, question: str, rng: np.random.Generator) -> dict | None:
+        seeds = sorted(s for (rt, s, t) in preds if rt == ratio and t == a and (ratio, s, b) in preds)
+        if not seeds:
+            return None
+        items = [(gold_ref, preds[(ratio, s, a)], preds[(ratio, s, b)], src_idx) for s in seeds]
+        d_all = [overall_f1(g, pa, sr) - overall_f1(g, pb, sr) for g, pa, pb, sr in items]
+        d_src = [source_avg_f1(g, pa, sr) - source_avg_f1(g, pb, sr) for g, pa, pb, sr in items]
+        lo, hi = hierarchical_bootstrap(items, overall_f1, args.n_boot, rng)
+        slo, shi = hierarchical_bootstrap(items, source_avg_f1, args.n_boot, rng)
+        return {
+            "ratio": ratio, "id": hid, "comparison": f"{a} − {b}", "question": question, "n_seeds": len(seeds),
+            "seeds": ",".join(map(str, seeds)),
+            "per_seed_delta": ",".join(f"{d:+.4f}" for d in d_all),
+            "mean_delta": float(np.mean(d_all)), "std_delta": float(np.std(d_all, ddof=1)) if len(d_all) > 1 else 0.0,
+            "n_positive": int(sum(d > 0 for d in d_all)),
+            "ci_low": lo, "ci_high": hi,
+            "src_avg_mean_delta": float(np.mean(d_src)), "src_avg_ci_low": slo, "src_avg_ci_high": shi,
+            "verdict": verdict(d_all, lo, hi),
+            "src_avg_verdict": verdict(d_src, slo, shi),
+        }
+
+    ratios = sorted({r["ratio"] for r in primary})
     rng = np.random.default_rng(0)
-    hyp_rows = []
-    for ratio in sorted({r["ratio"] for r in primary}):
-        for hid, a, b, question in HYPOTHESES:
-            seeds = sorted(s for (rt, s, t) in preds if rt == ratio and t == a and (ratio, s, b) in preds)
-            if not seeds:
-                continue
-            items = [(gold_ref, preds[(ratio, s, a)], preds[(ratio, s, b)], src_idx) for s in seeds]
-            d_all = [overall_f1(g, pa, sr) - overall_f1(g, pb, sr) for g, pa, pb, sr in items]
-            d_src = [source_avg_f1(g, pa, sr) - source_avg_f1(g, pb, sr) for g, pa, pb, sr in items]
-            lo, hi = hierarchical_bootstrap(items, overall_f1, args.n_boot, rng)
-            slo, shi = hierarchical_bootstrap(items, source_avg_f1, args.n_boot, rng)
-            hyp_rows.append({
-                "ratio": ratio, "id": hid, "comparison": f"{a} − {b}", "question": question, "n_seeds": len(seeds),
-                "seeds": ",".join(map(str, seeds)),
-                "per_seed_delta": ",".join(f"{d:+.4f}" for d in d_all),
-                "mean_delta": float(np.mean(d_all)), "std_delta": float(np.std(d_all, ddof=1)) if len(d_all) > 1 else 0.0,
-                "n_positive": int(sum(d > 0 for d in d_all)),
-                "ci_low": lo, "ci_high": hi,
-                "src_avg_mean_delta": float(np.mean(d_src)), "src_avg_ci_low": slo, "src_avg_ci_high": shi,
-                "verdict": verdict(d_all, lo, hi),
-                "src_avg_verdict": verdict(d_src, slo, shi),
-            })
+    hyp_rows = [row for ratio in ratios for hid, a, b, q in HYPOTHESES if (row := contrast(ratio, hid, a, b, q, rng))]
+
+    # ---- README_v3 13.4: α chosen on the dev set, then the section-13 tests (own generator: H/F CIs unchanged) ----
+    alpha_of = {"B": 0.0, **({"F": float(nli_alpha)} if nli_alpha is not None else {}), **ALPHA_VARIANTS}
+    alpha_rows, dev_choice = [], {}
+    for ratio in ratios:
+        seed_sets = {m: frozenset(i["seed"] for i in grouped.get((ratio, m), [])) for m in alpha_of}
+        if len(alpha_of) < 5 or not all(seed_sets.values()) or len(set(seed_sets.values())) != 1:
+            continue  # need every α on the same seeds
+        rows = []
+        for m, a in sorted(alpha_of.items(), key=lambda kv: kv[1]):
+            items = grouped[(ratio, m)]
+            rows.append({"ratio": ratio, "method": m, "alpha": a, "n_seeds": len(items),
+                         "dev_macro_f1": float(np.mean([i["best_val_macro_f1"] for i in items])),
+                         "test_macro_f1": float(np.mean([i["macro_f1"] for i in items]))})
+        best = max(rows, key=lambda r: r["dev_macro_f1"])
+        best["chosen_on_dev"] = True
+        dev_choice[ratio] = best["method"]
+        alpha_rows += rows
+    rng13 = np.random.default_rng(13)
+    hyp13_rows = []
+    for ratio in ratios:
+        for hid, a, b, q in HYPOTHESES_13:
+            if (row := contrast(ratio, hid, a, b, q, rng13)):
+                hyp13_rows.append(row)
+        if ratio in dev_choice:
+            m = dev_choice[ratio]
+            q = f"按验证集选出的 α = {alpha_of[m]}（{m}）是否优于 A（不看测试集选 α）"
+            if (row := contrast(ratio, "Rdev", m, "A", q, rng13)):
+                hyp13_rows.append(row)
 
     # ---- training noise (same split, different training seed) ----
     by_key = {(r["ratio"], r["seed"], r["tag"]): r for r in per_seed_rows}
@@ -326,6 +379,8 @@ def main() -> None:
     write_csv(out_dir / "per_seed.csv", per_seed_rows)
     write_csv(out_dir / "summary.csv", [{k: v for k, v in e.items() if not k.startswith("_")} for e in summary_rows])
     write_csv(out_dir / "hypotheses.csv", hyp_rows)
+    write_csv(out_dir / "hypotheses_13.csv", hyp13_rows)
+    write_csv(out_dir / "alpha_dev_selection.csv", alpha_rows)
     write_csv(out_dir / "training_noise.csv", noise_rows)
     write_csv(out_dir / "pseudo_quality.csv", quality_rows)
 
@@ -334,7 +389,7 @@ def main() -> None:
         "# v3 消融实验汇总",
         "",
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M')}；runs 目录：`{runs_dir}`；配置指纹：{fp_list}",
-        "- 只用主训练 seed 的结果做比较；判据见 README_v3 第 4 节（方向一的 F1–F3 见 10.8 节）。"
+        "- 只用主训练 seed 的结果做比较；判据见 README_v3 第 4 节（方向一的 F1–F3 见 10.8 节，第 13 节的检验见 13.4 节）。"
         + (f" A⊕NLI 为不训练的对照（α = {nli_alpha}）。" if nli_test is not None else ""),
         "",
         "## 1. 各组测试集 macro-F1（mean ± std）",
@@ -360,6 +415,23 @@ def main() -> None:
             f"{h['src_avg_mean_delta']:+.4f} ({h['src_avg_ci_low']:+.4f}, {h['src_avg_ci_high']:+.4f}) | {h['src_avg_verdict']} |"
         )
     lines += ["", "判据：95% CI 下界 > 0 且至少 ⌈0.8·n⌉ 个 seed 的 Δ > 0 为\"成立\"。", ""]
+    if hyp13_rows or alpha_rows:
+        lines += ["## 2b. 第 13 节的检验（外部基线、α 敏感性、多 NLI 集成；README_v3 13.4，判据同上）", "",
+                  "| ratio | 编号 | 比较 | seeds | 逐 seed Δ | 均值 ± 标准差 | Δ>0 的 seed | 95% CI | 结论 | 来源平均：均值（95% CI） | 来源平均结论 |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+        for h in hyp13_rows:
+            lines.append(
+                f"| {h['ratio']:.2f} | {h['id']} | {h['comparison']} | {h['n_seeds']} | {h['per_seed_delta']} | "
+                f"{h['mean_delta']:+.4f} ± {h['std_delta']:.4f} | {h['n_positive']}/{h['n_seeds']} | "
+                f"({h['ci_low']:+.4f}, {h['ci_high']:+.4f}) | **{h['verdict']}** | "
+                f"{h['src_avg_mean_delta']:+.4f} ({h['src_avg_ci_low']:+.4f}, {h['src_avg_ci_high']:+.4f}) | {h['src_avg_verdict']} |"
+            )
+        if alpha_rows:
+            lines += ["", "**按验证集选 α**（5 个 seed 平均的最佳验证 macro-F1 最高者，不看测试集）", "",
+                      "| ratio | 组 | α | seeds | 验证 macro-F1 | 测试 macro-F1 | 选中 |", "|---|---|---|---|---|---|---|"]
+            lines += [f"| {r['ratio']:.2f} | {r['method']} | {r['alpha']} | {r['n_seeds']} | {r['dev_macro_f1']:.4f} | "
+                      f"{r['test_macro_f1']:.4f} | {'✓' if r.get('chosen_on_dev') else ''} |" for r in alpha_rows]
+        lines.append("")
     lines += ["## 3. 训练噪声（同一划分，换训练 seed）", ""]
     if noise_rows:
         lines += ["| run | 组 | 训练 seed | 主结果 | 重复 | \\|Δ\\| |", "|---|---|---|---|---|---|"]
@@ -369,11 +441,12 @@ def main() -> None:
         lines.append("没有重复训练的结果。")
     lines += ["", "## 4. 伪标签集合质量", ""]
     if quality_rows:
-        lines += ["| run | 整池准确率 | " + " | ".join(f"{m} 条数 / 准确率 / 平衡后" for m in ("B", "Q", "K", "F")) + " | c 的 AUROC | 置信度 AUROC |",
-                  "|---|---|---|---|---|---|---|---|"]
+        q_methods = [m for m in ("B", "Q", "K", "F", *ALPHA_VARIANTS, "E") if any(q.get(f"set_{m}_size") is not None for q in quality_rows)]
+        lines += ["| run | 整池准确率 | " + " | ".join(f"{m} 条数 / 准确率 / 平衡后" for m in q_methods) + " | c 的 AUROC | 置信度 AUROC |",
+                  "|---|---|" + "---|" * len(q_methods) + "---|---|"]
         for q in quality_rows:
             cells = []
-            for m in ("B", "Q", "K", "F"):
+            for m in q_methods:
                 if q.get(f"set_{m}_size") is None:
                     cells.append("—")
                 else:

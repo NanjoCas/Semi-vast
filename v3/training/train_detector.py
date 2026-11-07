@@ -71,7 +71,15 @@ from common.data_utils import (  # noqa: E402
     pad_sequences,
 )
 from common.fingerprint import config_fingerprint  # noqa: E402
-from common.paths import ALL_METHODS, RunPaths, cfg_path, detector_tag, labeled_split_path, load_config  # noqa: E402
+from common.paths import (  # noqa: E402
+    ALL_METHODS,
+    CLAIM_ONLY_METHODS,
+    RunPaths,
+    cfg_path,
+    detector_tag,
+    labeled_split_path,
+    load_config,
+)
 from models.detector import DualChannelDetector, compute_class_priors  # noqa: E402
 from models.encoder_runtime import compile_encoder_layers, uncompiled_frames  # noqa: E402
 
@@ -526,10 +534,19 @@ def main() -> None:
     dynamic_padding = bool(train_cfg.get("dynamic_padding", True))
     if dynamic_padding:
         loader_kwargs["collate_fn"] = DynamicPaddingCollator(tokenizer.pad_token_id)
-    ds_kwargs = {"max_length": max_length, "dynamic_padding": dynamic_padding}
+    claim_only = args.method in CLAIM_ONLY_METHODS
+    ds_kwargs = {"max_length": max_length, "dynamic_padding": dynamic_padding, "claim_only": claim_only}
     train_dataset = ClaimEvidenceDataset(str(train_path), tokenizer, **ds_kwargs)
     dev_dataset = ClaimEvidenceDataset(str(dev_path), tokenizer, **ds_kwargs)
     test_dataset = ClaimEvidenceDataset(str(test_path), tokenizer, **ds_kwargs)
+    if claim_only:  # README_v3 13.3：确认输入里没有证据（只有一段，即只有一个 [SEP]）
+        for name, ds in (("train", train_dataset), ("dev", dev_dataset), ("test", test_dataset)):
+            for i in range(len(ds)):
+                if int((ds[i]["input_ids"] == tokenizer.sep_token_id).sum()) != 1:
+                    log.error("claim-only input of %s[%d] contains more than one segment", name, i)
+                    sys.exit(1)
+        log.info("claim-only input checked on all %d / %d / %d pairs; e.g. %s", len(train_dataset), len(dev_dataset),
+                 len(test_dataset), tokenizer.decode(train_dataset[0]["input_ids"])[:200])
 
     # M5: drop the last partial labeled batch (436 = 27 x 16 + 4 would give a 4-pair update every pass).
     labeled_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
@@ -634,6 +651,7 @@ def main() -> None:
         "config_fingerprint": fingerprint,
         "encoder_source": detector.encoder_source,
         "frozen_layers": detector.frozen_layers,
+        "input": "claim" if claim_only else "claim+evidence",
         "total_optimizer_steps": history[-1]["step"] if history else 0,
         "planned_steps": total_steps,
         "eval_every": eval_every,

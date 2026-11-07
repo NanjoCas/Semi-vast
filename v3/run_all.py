@@ -8,8 +8,10 @@ run_all.py — v3 一键运行脚本（README_v3 第 5 节）
   2. train_extractor        只用有标签部分训练 extractor（伪标签池已存在时跳过）
   3. generate_pseudolabels  对无标签池打伪标签，LogicScore 使用真实证据
   4. train_rl_selector      只有 C / R 需要（v2 设计）
-  4b. compute_nli_probs     只有 F 需要：池中每条的 NLI 三类概率（另在全局算一次测试集的，供 A⊕NLI 对照）
-  5. build_baseline_sets    B / Q / K / F / O（以及 W / R）的伪标签集合；每次都重建（几秒钟，结果确定）
+  4b. compute_nli_probs     F / F25 / F75 / F100 / E 需要：池中每条的 NLI 三类概率（另在全局算一次测试集的，供 A⊕NLI 对照）；
+                            E 另外先在验证集上检查 3 个 NLI 模型的零样本 macro-F1（低于 0.35 即停，README_v3 13.3），
+                            再算另外两个模型对池的概率
+  5. build_baseline_sets    B / Q / K / F / F25 / F75 / F100 / E / O（以及 W / R）的伪标签集合；每次都重建（几秒钟，结果确定）
   6. train_detector         每个方法 × 每个训练 seed；结果已存在且配置指纹相同才跳过
   7. pseudo_label_quality   用隐藏的金标签评估伪标签与各集合
   8. sanity_check           自动检查 S1–S7，只警告不中断
@@ -43,9 +45,13 @@ sys.path.insert(0, str(ROOT))
 from common.fingerprint import config_fingerprint  # noqa: E402
 from common.paths import (  # noqa: E402
     ALL_METHODS,
+    ALPHA_VARIANTS,
+    ENSEMBLE_NLI_MODELS,
     FUSION_METHODS,
     LEGACY_METHODS,
     MAIN_METHODS,
+    NLI_POOL_METHODS,
+    NO_PSEUDO_METHODS,
     RunPaths,
     cfg_path,
     detector_tag,
@@ -57,6 +63,7 @@ from common.paths import (  # noqa: E402
 )
 
 PYTHON = sys.executable
+MIN_ZERO_SHOT_MACRO_F1 = 0.35   # README_v3 13.3：低于它说明标签映射可能有误（随机水平约 0.33）
 ENV_EXTRA = {
     "TOKENIZERS_PARALLELISM": "false",
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
@@ -184,9 +191,14 @@ def main() -> None:
     print(f"[INFO] methods      : {methods}")
     print(f"[INFO] train seeds  : split seed" + (f" + {extra_train_seeds}" if extra_train_seeds else ""))
     print(f"[INFO] device       : {device}")
-    needs_nli = any(m in FUSION_METHODS for m in methods)
-    if needs_nli:
+    needs_nli = any(m in NLI_POOL_METHODS for m in methods)
+    needs_ensemble = "E" in methods
+    if any(m in FUSION_METHODS for m in methods):
         print(f"[INFO] teacher      : extractor + NLI, nli_fusion_alpha = {nli_fusion_alpha(cfg)}（方法 {[m for m in methods if m in FUSION_METHODS]}）")
+    if any(m in ALPHA_VARIANTS for m in methods):
+        print(f"[INFO] α variants   : {({m: a for m, a in ALPHA_VARIANTS.items() if m in methods})}（README_v3 第 13 节）")
+    if needs_ensemble:
+        print(f"[INFO] NLI ensemble : {[cfg['models']['nli_model'], *ENSEMBLE_NLI_MODELS]}（方法 E，README_v3 13.2）")
     legacy = [m for m in methods if m in LEGACY_METHODS]
     if legacy:
         print(f"[WARN] {legacy} 仍是 v2 的设计（复合权重用 |LogicScore|、RL 奖励近似常数），尚未按 v3 修订，"
@@ -204,10 +216,16 @@ def main() -> None:
         run_step("NLI probs (test)",
                  [PYTHON, "training/compute_nli_probs.py", "--config", config_arg, "--split", "test", "--device", device],
                  nli_split_path(cfg, "test"), args.force)
+    if needs_ensemble:  # README_v3 13.3：每个 NLI 模型在验证集上的零样本 macro-F1，过低即停
+        for model in [cfg["models"]["nli_model"], *ENSEMBLE_NLI_MODELS]:
+            run_step(f"NLI zero-shot check (dev, {model})",
+                     [PYTHON, "training/compute_nli_probs.py", "--config", config_arg, "--split", "dev", "--model", model,
+                      "--min_macro_f1", str(MIN_ZERO_SHOT_MACRO_F1), "--device", device],
+                     nli_split_path(cfg, "dev", model), args.force)
 
-    needs_pseudo = any(m != "A" for m in methods)
+    needs_pseudo = any(m not in NO_PSEUDO_METHODS for m in methods)
     needs_rl = any(m in ("C", "R") for m in methods)
-    baseline_methods = [m for m in methods if m in ("B", "Q", "K", "F", "W", "R", "O")]
+    baseline_methods = [m for m in methods if m in ("B", "Q", "K", "F", *ALPHA_VARIANTS, "E", "W", "R", "O")]
 
     for ratio in ratios:
         for seed in seeds:
@@ -240,6 +258,11 @@ def main() -> None:
                     run_step(f"[{tag_run}] NLI probs (pool)",
                              [PYTHON, "training/compute_nli_probs.py", *common, "--device", device],
                              paths.nli_probs, args.force)
+                if needs_ensemble:
+                    for model in ENSEMBLE_NLI_MODELS:
+                        run_step(f"[{tag_run}] NLI probs (pool, {model})",
+                                 [PYTHON, "training/compute_nli_probs.py", *common, "--model", model, "--device", device],
+                                 paths.pool_nli_probs(model), args.force)
                 if needs_rl:
                     run_step(f"[{tag_run}] Train RL selector (v2 design)",
                              [PYTHON, "training/train_rl_selector.py", *common, "--seed", str(seed), "--device", device],
