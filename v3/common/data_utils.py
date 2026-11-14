@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import numbers
+import random
 from pathlib import Path
 
 import torch
@@ -211,3 +212,80 @@ class DynamicPaddingCollator:
         for key in ("id", "source"):
             out[key] = [b[key] for b in batch]
         return out
+
+
+# ---------------------------------------------------------------------------
+# FixMatch / FreeMatch (README_v3 第 14 节)：无标签池的弱 / 强增强
+# ---------------------------------------------------------------------------
+
+def bt_unit(text: str, max_words: int) -> str:
+    """The part of an evidence segment that is back-translated (its first max_words words); tools/backtranslate.py uses the same cut."""
+    return " ".join(text.split()[:max_words])
+
+
+class WeakStrongPoolDataset(Dataset):
+    """
+    Unlabeled pool with two views per pair, as in USB's NLP datasets (README_v3 14.2):
+      weak   = the original claim + evidence (identical to ClaimEvidenceDataset);
+      strong = one of the back-translations, chosen at random on every access.
+    variant: V1 claim and evidence back-translated, V2 evidence only, V3 claim only (README_v3 14.4).
+    Back-translated evidence covers the first max_words words of each segment, like the cache.
+    """
+
+    def __init__(self, base: ClaimEvidenceDataset, backtranslations: dict[str, dict[str, str]], variant: str,
+                 max_words: int) -> None:
+        if variant not in ("V1", "V2", "V3"):
+            raise ValueError(f"unknown back-translation variant {variant!r}")
+        self.base = base
+        self.bt = backtranslations
+        self.langs = sorted(backtranslations)
+        self.bt_claim = variant in ("V1", "V3")
+        self.bt_evidence = variant in ("V1", "V2")
+        self.max_words = max_words
+        missing = {lang: sum(1 for t in self._units() if t not in bt) for lang, bt in backtranslations.items()}
+        if any(missing.values()):
+            raise ValueError(f"back-translations missing for some pool texts: {missing} (run tools/backtranslate.py)")
+
+    def _units(self):
+        for rec in self.base.records:
+            if self.bt_claim:
+                yield rec.get("claim", "")
+            if self.bt_evidence:
+                for e in self._evidences(rec):
+                    yield bt_unit(e, self.max_words)
+
+    def _evidences(self, rec: dict) -> list[str]:
+        evidences = rec.get("evidence", []) or []
+        return ([evidences] if isinstance(evidences, str) else evidences)[: self.base.max_evidences]
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+    def __getitem__(self, idx: int) -> dict:
+        rec = self.base.records[idx]
+        bt = self.bt[random.choice(self.langs)]
+        claim = bt[rec.get("claim", "")] if self.bt_claim else rec.get("claim", "")
+        if self.bt_evidence:
+            evidence = self.base.evidence_sep.join(bt[bt_unit(e, self.max_words)] for e in self._evidences(rec))
+        else:
+            evidence = self.base.evidence_text(rec)
+        weak = self.base[idx]
+        strong = {**weak, **dict(zip(("input_ids", "attention_mask", "token_type_ids"), self._encode(claim, evidence)))}
+        return {"weak": weak, "strong": strong}
+
+    def _encode(self, claim: str, evidence: str) -> tuple[torch.Tensor, ...]:
+        enc = self.base.tokenizer(claim, evidence, max_length=self.base.max_length, truncation=True,
+                                  padding=False if self.base.dynamic_padding else "max_length", return_tensors="pt")
+        seq_len = enc["input_ids"].shape[-1]
+        tt = enc.get("token_type_ids", torch.zeros(1, seq_len, dtype=torch.long))
+        return enc["input_ids"].squeeze(0), enc["attention_mask"].squeeze(0), tt.squeeze(0)
+
+
+class WeakStrongCollator:
+    """Pads the weak and the strong views separately with the usual collator."""
+
+    def __init__(self, base: DynamicPaddingCollator) -> None:
+        self.base = base
+
+    def __call__(self, batch: list[dict]) -> dict:
+        return {"weak": self.base([b["weak"] for b in batch]), "strong": self.base([b["strong"] for b in batch])}

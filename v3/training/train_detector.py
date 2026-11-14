@@ -33,6 +33,12 @@ run's unlabeled pool) instead of the NLI cross-encoder. --encoder_dir points AT 
 --skip_test stops after the dev-set selection without reading the test set; together they are the TAPT
 feasibility test (tools/tapt_probe.sh), whose results go to --out_dir instead of outputs/detector/.
 
+Methods FIX / FREE (README_v3 section 14) are FixMatch / FreeMatch as implemented in USB: instead of a pseudo set, every
+step draws `pseudo_ratio` batches from the unlabeled pool; the weak view (original text) goes through the model without
+gradient (train mode), its argmax is the hard pseudo label, and the strong view (a back-translation) is trained on it
+where the mask is 1. The mask is max p >= 0.95 (FIX) or FreeMatch's self-adaptive threshold (FREE, plus its fairness
+loss). The unlabeled loss is mean(mask * CE), i.e. compute_joint_loss with the mask as pseudo weights.
+
 Every method uses the same supervised loss and the same claim+evidence reasoning
 channel for labeled and pseudo-labeled pairs (as in v2).
 
@@ -74,15 +80,23 @@ from common.data_utils import (  # noqa: E402
     DynamicPaddingCollator,
     ID2LABEL,
     NUM_LABELS,
+    WeakStrongCollator,
+    WeakStrongPoolDataset,
     class_weights_from_labels,
+    label_to_id,
+    load_jsonl,
     pad_sequences,
 )
 from common.fingerprint import config_fingerprint  # noqa: E402
 from common.paths import (  # noqa: E402
     ALL_METHODS,
+    BT_MAX_WORDS,
     CLAIM_ONLY_METHODS,
+    SSL_METHODS,
+    SSL_SETTINGS,
     TAPT_METHODS,
     RunPaths,
+    backtranslation_path,
     cfg_path,
     detector_tag,
     labeled_split_path,
@@ -190,6 +204,80 @@ def eval_steps(total_steps: int, eval_every: int) -> list[int]:
 
 
 # ============================================================================
+# FixMatch / FreeMatch masks (README_v3 14.2; follows USB's hooks)
+# ============================================================================
+
+class FixedThreshold:
+    """FixMatch (USB FixedThresholdingHook): mask = max p >= p_cutoff."""
+
+    def __init__(self, p_cutoff: float) -> None:
+        self.p_cutoff = float(p_cutoff)
+
+    @torch.no_grad()
+    def __call__(self, probs: torch.Tensor) -> torch.Tensor:
+        return probs.max(dim=-1)[0].ge(self.p_cutoff).to(probs.dtype)
+
+    def state(self) -> dict:
+        return {"threshold": self.p_cutoff}
+
+
+class FreeMatchThreshold:
+    """
+    FreeMatch self-adaptive thresholding (USB FreeMatchThresholingHook, use_quantile=False, clip_thresh=False):
+    EMAs of the mean max-probability (time_p), the mean class probabilities (p_model) and the pseudo-label histogram
+    (label_hist), all starting at 1/C and updated with every unlabeled batch before masking;
+    mask = max p >= time_p * p_model[argmax] / max(p_model).
+    """
+
+    def __init__(self, num_classes: int, momentum: float, device: torch.device) -> None:
+        self.m = float(momentum)
+        self.p_model = torch.ones(num_classes, device=device) / num_classes
+        self.label_hist = torch.ones(num_classes, device=device) / num_classes
+        self.time_p = self.p_model.mean()
+
+    @torch.no_grad()
+    def __call__(self, probs: torch.Tensor) -> torch.Tensor:
+        max_probs, max_idx = torch.max(probs, dim=-1, keepdim=True)
+        self.time_p = self.time_p * self.m + (1 - self.m) * max_probs.mean()
+        self.p_model = self.p_model * self.m + (1 - self.m) * probs.mean(dim=0)
+        hist = torch.bincount(max_idx.reshape(-1), minlength=self.p_model.shape[0]).to(self.p_model.dtype)
+        self.label_hist = self.label_hist * self.m + (1 - self.m) * (hist / hist.sum())
+        max_probs, max_idx = probs.max(dim=-1)
+        mod = self.p_model / torch.max(self.p_model, dim=-1)[0]
+        return max_probs.ge(self.time_p * mod[max_idx]).to(max_probs.dtype)
+
+    def state(self) -> dict:
+        return {"threshold": float(self.time_p), "p_model": [round(float(x), 4) for x in self.p_model],
+                "label_hist": [round(float(x), 4) for x in self.label_hist]}
+
+
+def _replace_inf_to_zero(val: torch.Tensor) -> torch.Tensor:
+    val[val == float("inf")] = 0.0
+    return val
+
+
+def freematch_fairness_loss(mask: torch.Tensor, logits_s: torch.Tensor, prob_model: torch.Tensor,
+                            label_hist: torch.Tensor) -> torch.Tensor:
+    """FreeMatch self-adaptive fairness (SAF) loss, as USB's entropy_loss (semilearn/algorithms/freematch/freematch.py)."""
+    mask = mask.bool()
+    logits_s = logits_s[mask]
+    prob_s = logits_s.softmax(dim=-1)
+    _, pred_label_s = torch.max(prob_s, dim=-1)
+    hist_s = torch.bincount(pred_label_s, minlength=logits_s.shape[1]).to(logits_s.dtype)
+    hist_s = hist_s / hist_s.sum()
+    prob_model = prob_model.reshape(1, -1)
+    label_hist = label_hist.reshape(1, -1)
+    prob_model_scaler = _replace_inf_to_zero(1 / label_hist).detach()
+    mod_prob_model = prob_model * prob_model_scaler
+    mod_prob_model = mod_prob_model / mod_prob_model.sum(dim=-1, keepdim=True)
+    mean_prob_scaler_s = _replace_inf_to_zero(1 / hist_s).detach()
+    mod_mean_prob_s = prob_s.mean(dim=0, keepdim=True) * mean_prob_scaler_s
+    mod_mean_prob_s = mod_mean_prob_s / mod_mean_prob_s.sum(dim=-1, keepdim=True)
+    loss = mod_prob_model * torch.log(mod_mean_prob_s + 1e-12)
+    return loss.sum(dim=1).mean()
+
+
+# ============================================================================
 # Evaluation
 # ============================================================================
 
@@ -257,6 +345,7 @@ def train(
     class_weights: Optional[torch.Tensor] = None,
     class_priors: Optional[torch.Tensor] = None,
     pad_token_id: int = 0,
+    ssl: Optional[dict] = None,
 ) -> tuple[list[dict], dict]:
     """
     Train for exactly `training.detector_total_steps` optimizer steps.
@@ -265,6 +354,9 @@ def train(
     labeled batch plus `pseudo_ratio` pseudo batches (none for method A). Both loaders are cycled,
     so a small pseudo set is simply revisited more often. The dev set is evaluated at
     eval_steps(); the best weights (by dev macro-F1) are copied to CPU memory.
+
+    ssl (methods FIX / FREE): {"loader", "masker", "ent_loss_ratio", "gold"} -- the `pseudo_ratio` batches come from the
+    unlabeled pool instead (weak / strong views, README_v3 14.2); gold labels are used only for the diagnostics.
 
     Returns (history, best) where best = {"step", "val_metrics", "state"}.
     """
@@ -278,6 +370,7 @@ def train(
     max_grad_norm = 1.0
     pseudo_ratio = int(train_cfg.get("pseudo_ratio", 3))
     use_pseudo = pseudo_loader is not None and pseudo_ratio > 0
+    use_ssl = ssl is not None and pseudo_ratio > 0
 
     use_bf16 = bool(train_cfg.get("use_bf16", False))
     use_fp16 = bool(train_cfg.get("use_fp16", False))
@@ -329,7 +422,7 @@ def train(
         "per step: %d labeled + %d pseudo pairs | encoder=%s frozen_layers=%d trainable_params=%.1fM",
         total_steps, eval_every, grad_accum, warmup_steps, lr,
         labeled_loader.batch_size * grad_accum,
-        (pseudo_ratio * (pseudo_loader.batch_size or 0) * grad_accum) if use_pseudo else 0,
+        (pseudo_ratio * ((pseudo_loader or (ssl or {}).get("loader")).batch_size or 0) * grad_accum) if (use_pseudo or use_ssl) else 0,
         detector.encoder_source, detector.frozen_layers, sum(p.numel() for p in trainable) / 1e6,
     )
     log.info(
@@ -341,11 +434,17 @@ def train(
 
     labeled_iter = _infinite_cycle(labeled_loader)
     pseudo_iter = _infinite_cycle(pseudo_loader) if use_pseudo else None
+    ssl_iter = _infinite_cycle(ssl["loader"]) if use_ssl else None
+    if use_ssl:
+        log.info("unlabeled loss: %s mask, ent_loss_ratio=%s, weak view without gradient (train mode), strong view = "
+                 "back-translation", type(ssl["masker"]).__name__, ssl["ent_loss_ratio"])
     best: dict = {"step": 0, "val_metrics": None, "state": None}
     best_f1 = -1.0
     history: list[dict] = []
     skipped_nonfinite = 0
-    win = {"loss": 0.0, "sup": 0.0, "pseudo": 0.0, "n": 0}
+    new_window = lambda: {"loss": 0.0, "sup": 0.0, "pseudo": 0.0, "n": 0,  # noqa: E731
+                          "ulb": 0, "masked": 0.0, "masked_known": 0, "masked_correct": 0, "ent": 0.0}
+    win = new_window()
     t_window = time.time()
 
     pbar = tqdm(range(1, total_steps + 1), desc="train", unit="step", leave=False, dynamic_ncols=True)
@@ -375,6 +474,40 @@ def train(
                         pseudo_weight_norm=pseudo_weight_norm,
                         **loss_kwargs,
                     )
+                elif use_ssl:
+                    batches = [next(ssl_iter) for _ in range(pseudo_ratio)]
+                    weak = _concat_batches([b["weak"] for b in batches], pad_token_id)
+                    strong = _concat_batches([b["strong"] for b in batches], pad_token_id)
+                    with torch.no_grad():  # USB with use_cat=False: weak view without gradient, model in train mode
+                        weak_logits = detector.forward_reasoning(*_to_device(weak, device))
+                    probs = torch.softmax(weak_logits.float(), dim=-1)
+                    mask = ssl["masker"](probs)
+                    hard = probs.argmax(dim=-1)
+                    strong_logits = detector.forward_reasoning(*_to_device(strong, device))
+                    loss_dict = detector.compute_joint_loss(
+                        labeled_logits=labeled_logits,
+                        labeled_labels=labels,
+                        pseudo_logits=strong_logits,
+                        pseudo_labels=hard,
+                        pseudo_weights=mask,
+                        lambda_val=lam,
+                        pseudo_loss_type="ce",
+                        pseudo_weight_norm="mean",  # mean(mask * CE) over all unlabeled pairs, as USB's consistency_loss
+                        **loss_kwargs,
+                    )
+                    if ssl["ent_loss_ratio"] and mask.sum() > 0:
+                        ent = freematch_fairness_loss(mask, strong_logits.float(), ssl["masker"].p_model,
+                                                      ssl["masker"].label_hist)
+                        loss_dict["total"] = loss_dict["total"] + ssl["ent_loss_ratio"] * ent
+                        win["ent"] += float(ent.item())
+                    ids = [i for b in batches for i in b["weak"]["id"]]
+                    kept = mask.bool().cpu().tolist()
+                    win["ulb"] += len(ids)
+                    win["masked"] += float(mask.sum().item())
+                    for i, k, y in zip(ids, kept, hard.cpu().tolist()):
+                        if k and ssl["gold"].get(i) is not None:
+                            win["masked_known"] += 1
+                            win["masked_correct"] += int(ssl["gold"][i] == y)
                 else:
                     l_sup = detector.compute_supervised_loss(labeled_logits, labels, **loss_kwargs)
                     loss_dict = {"total": l_sup, "supervised": l_sup, "pseudo": torch.zeros((), device=device)}
@@ -413,11 +546,21 @@ def train(
                 "step": step,
                 "train_loss": win["loss"] / n,
                 "train_sup_loss": win["sup"] / n,
-                "train_pseudo_loss": (win["pseudo"] / n) if use_pseudo else 0.0,
+                "train_pseudo_loss": (win["pseudo"] / n) if (use_pseudo or use_ssl) else 0.0,
                 "lambda": lam,
                 "lr": float(scheduler.get_last_lr()[0]),
                 "window_seconds": round(time.time() - t_window, 1),
             }
+            if use_ssl:  # README_v3 14.2 的诊断量，只记录
+                row.update({
+                    "ssl_mask_rate": win["masked"] / max(win["ulb"], 1),
+                    "ssl_masked_acc": (win["masked_correct"] / win["masked_known"]) if win["masked_known"] else None,
+                    "ssl_fairness_loss": win["ent"] / n,
+                    "ssl_threshold": ssl["masker"].state()["threshold"],
+                })
+                log.info("  unlabeled: mask rate %.3f, masked pseudo-label accuracy %s, threshold %.4f",
+                         row["ssl_mask_rate"], "n/a" if row["ssl_masked_acc"] is None else f"{row['ssl_masked_acc']:.3f}",
+                         row["ssl_threshold"])
             val_metrics = evaluate(detector, val_loader, device, f"val@{step}", use_amp, amp_dtype)
             row.update({f"val_{k}": v for k, v in val_metrics.items()})
             history.append(row)
@@ -434,12 +577,19 @@ def train(
                     "state": {k: v.detach().to("cpu", copy=True) for k, v in detector.state_dict().items()},
                 }
                 log.info("  New best val macro-F1=%.4f at step %d", best_f1, step)
-            win = {"loss": 0.0, "sup": 0.0, "pseudo": 0.0, "n": 0}
+            win = new_window()
             t_window = time.time()
 
     best["skipped_nonfinite"] = skipped_nonfinite
     best["checkpointed_layers"] = checkpointed_layers
     best["torch_compile"] = torch_compile
+    if use_ssl:
+        rates = [h["ssl_mask_rate"] for h in history]
+        accs = [h["ssl_masked_acc"] for h in history if h.get("ssl_masked_acc") is not None]
+        best["ssl"] = {"mask_rate_mean": float(np.mean(rates)) if rates else None,
+                       "mask_rate_last": rates[-1] if rates else None,
+                       "masked_acc_mean": float(np.mean(accs)) if accs else None,
+                       "final_state": ssl["masker"].state()}
     log.info("Training complete. Best val macro-F1: %.4f at step %d/%d", best_f1, best["step"], total_steps)
     return history, best
 
@@ -621,6 +771,34 @@ def main() -> None:
             **loader_kwargs,
         )
 
+    ssl = None
+    if args.method in SSL_METHODS:  # README_v3 第 14 节：无标签池的弱 / 强增强
+        variant = SSL_SETTINGS.get("bt_variant")
+        if variant is None:
+            log.error("SSL_SETTINGS['bt_variant'] is not set yet (README_v3 14.4: run tools/backtranslate.py first)")
+            sys.exit(1)
+        bts = {}
+        for lang in SSL_SETTINGS["bt_langs"]:
+            bt_path = backtranslation_path(cfg, lang)
+            if not bt_path.exists():
+                log.error("Back-translation cache not found: %s (run tools/backtranslate.py)", bt_path)
+                sys.exit(1)
+            bts[lang] = {r["src"]: r["bt"] for r in load_jsonl(bt_path)}
+        pool_base = ClaimEvidenceDataset(str(paths.unlabeled_pool), tokenizer, require_label=False, **ds_kwargs)
+        pool_dataset = WeakStrongPoolDataset(pool_base, bts, variant, BT_MAX_WORDS)
+        gold = {r["id"]: label_to_id(r["label"]) for r in load_jsonl(paths.unlabeled_gold)}
+        ssl_loader_kwargs = {**loader_kwargs, "collate_fn": WeakStrongCollator(DynamicPaddingCollator(tokenizer.pad_token_id))}
+        pseudo_bs = int(train_cfg.get("pseudo_batch_size", batch_size))
+        ssl_loader = DataLoader(pool_dataset, batch_size=pseudo_bs, shuffle=True, drop_last=True, **ssl_loader_kwargs)
+        masker = (FixedThreshold(SSL_SETTINGS["p_cutoff"]) if args.method == "FIX"
+                  else FreeMatchThreshold(NUM_LABELS, SSL_SETTINGS["ema_p"], device))
+        ssl = {"loader": ssl_loader, "masker": masker, "gold": gold,
+               "ent_loss_ratio": float(SSL_SETTINGS["ent_loss_ratio"]) if args.method == "FREE" else 0.0}
+        example = pool_dataset[0]
+        log.info("method %s: unlabeled pool %d pairs, back-translation %s %s; e.g. weak %r | strong %r", args.method,
+                 len(pool_dataset), variant, SSL_SETTINGS["bt_langs"],
+                 tokenizer.decode(example["weak"]["input_ids"])[:160], tokenizer.decode(example["strong"]["input_ids"])[:160])
+
     detector = DualChannelDetector(
         model_name=model_name,
         num_labels=NUM_LABELS,
@@ -650,8 +828,13 @@ def main() -> None:
         class_weights=class_weights,
         class_priors=class_priors,
         pad_token_id=tokenizer.pad_token_id,
+        ssl=ssl,
     )
     train_minutes = (time.time() - t0) / 60
+    ssl_info = None
+    if ssl is not None:
+        ssl_info = {"method": {"FIX": "fixmatch", "FREE": "freematch"}[args.method], "settings": dict(SSL_SETTINGS),
+                    "pool_size": len(ssl["loader"].dataset), **best.get("ssl", {})}
 
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "train_metrics.json", "w", encoding="utf-8") as fh:
@@ -664,6 +847,7 @@ def main() -> None:
     if args.skip_test:  # TAPT 可行性测试：只记录验证集上的选择结果，不加载测试集
         val_results = {"run": paths.root.name, "method": args.method, "tag": tag, "seed": seed, "train_seed": train_seed,
                        "config_fingerprint": fingerprint, "encoder_source": detector.encoder_source, "tapt": tapt_info,
+                       "ssl": ssl_info,
                        "planned_steps": total_steps, "best_step": best["step"], "best_val": best["val_metrics"],
                        "train_minutes": round(train_minutes, 1),
                        "uncompiled_frames": uncompiled_frames() if best.get("torch_compile") else None}
@@ -697,6 +881,7 @@ def main() -> None:
         "encoder_source": detector.encoder_source,
         "frozen_layers": detector.frozen_layers,
         "tapt": tapt_info,
+        "ssl": ssl_info,
         "input": "claim" if claim_only else "claim+evidence",
         "total_optimizer_steps": history[-1]["step"] if history else 0,
         "planned_steps": total_steps,

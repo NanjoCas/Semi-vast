@@ -37,7 +37,7 @@ DEFAULT_CONFIG = ROOT / "configs" / "config.yaml"
 # Ablation methods (see training/build_baseline_sets.py and README_v3.md).
 MAIN_METHODS = ["A", "B", "Q", "K", "O"]
 LEGACY_METHODS = ["W", "R", "C"]          # v2 设计，尚未按 v3 重新设计（README_v3 第 8 节）
-ALL_METHODS = ["A", "AC", "AT", "B", "Q", "K", "F", "F25", "F75", "F100", "E", "W", "R", "C", "O"]
+ALL_METHODS = ["A", "AC", "AT", "B", "Q", "K", "F", "F25", "F75", "F100", "E", "FIX", "FREE", "W", "R", "C", "O"]
 FUSION_METHODS = ["F"]                    # 方向一：extractor + NLI 融合的 teacher（README_v3 10.6），需要 teacher.nli_fusion_alpha
 # README_v3 第 13 节。α 与集成模型写在这里而不进配置：配置里新增任何键都会改变指纹，使已有结果失效。
 ALPHA_VARIANTS = {"F25": 0.25, "F75": 0.75, "F100": 1.0}   # 与 F 相同，只是 α 不同（α = 1.0 即只用 NLI）
@@ -45,10 +45,27 @@ CLAIM_ONLY_METHODS = ["AC"]               # 与 A 相同，但 detector 只输�
 ENSEMBLE_NLI_MODELS = ["facebook/bart-large-mnli", "FacebookAI/roberta-large-mnli"]  # 方法 E：加上 models.nli_model 共 3 个
 NLI_POOL_METHODS = [*FUSION_METHODS, *ALPHA_VARIANTS, "E"]  # 需要无标签池的 NLI 概率
 TAPT_METHODS = ["AT"]                     # 与 A 相同，但 encoder 先在无标签池上做 MLM 继续预训练（training/tapt.py，README_v3 13.5）
-NO_PSEUDO_METHODS = ["A", *CLAIM_ONLY_METHODS, *TAPT_METHODS]
+SSL_METHODS = ["FIX", "FREE"]             # 标准半监督基线 FixMatch / FreeMatch（README_v3 第 14 节）：一致性训练，不用伪标签集合
+NO_PSEUDO_METHODS = ["A", *CLAIM_ONLY_METHODS, *TAPT_METHODS, *SSL_METHODS]   # 不需要 extractor 的伪标签池
 # TAPT 的设置（README_v3 13.5）：在 seed 42 上做完可行性测试、补进 13.5 并提交 git 之后才填。
 # 和 α 一样写在代码里，不进配置（否则指纹改变，runs_fc 的结果全部失效）。为 None 时 run_all.py 拒绝跑 AT。
 TAPT_SETTINGS: dict | None = {"lr": 3e-6, "mask_prob": 0.15, "epochs": 1}   # 2026-11-07 可行性测试选定（README_v3 13.5.1）
+
+# FixMatch / FreeMatch 的设置（README_v3 14.2，按 USB 的实现）。和 α、TAPT 一样写在代码里，不进配置。
+# bt_variant 由 tools/backtranslate.py 在验证集上按 14.4 第 1 项的规则选出、补进 14.4 之后才填；为 None 时 run_all.py 拒绝跑。
+SSL_SETTINGS: dict = {
+    "p_cutoff": 0.95,          # FIX：固定阈值
+    "ema_p": 0.999,            # FREE：自适应阈值（SAT）的 EMA 动量
+    "ent_loss_ratio": 0.001,   # FREE：公平性损失（SAF）的权重（USB NLP 配置）
+    "bt_langs": ["de", "ru"],  # 强增强：从这两份回译中每次随机取一份；弱增强为原文
+    "bt_variant": "V1",        # V1 claim 和证据都回译 / V2 只回译证据 / V3 只回译 claim；2026-11-14 按 14.4 第 1 项选定
+}
+# 回译模型（en → 中间语言，中间语言 → en），用模型自带的解码设置（README_v3 14.3）
+BT_MODELS = {
+    "de": ("Helsinki-NLP/opus-mt-en-de", "Helsinki-NLP/opus-mt-de-en"),
+    "ru": ("Helsinki-NLP/opus-mt-en-ru", "Helsinki-NLP/opus-mt-ru-en"),
+}
+BT_MAX_WORDS = 450   # 每段证据只回译前 450 个词：detector 的输入截断在 512 个 token，之后的部分本来就看不到
 
 _TAG_PATTERN = re.compile(r"^(?P<method>[A-Z][A-Za-z0-9]*)(?:_t(?P<train_seed>\d+))?$")
 
@@ -97,6 +114,11 @@ def nli_fusion_alpha(cfg: dict) -> float:
     if not 0.0 <= alpha <= 1.0:
         raise SystemExit(f"teacher.nli_fusion_alpha must be in [0, 1], got {alpha}")
     return alpha
+
+
+def backtranslation_path(cfg: dict, lang: str) -> Path:
+    """Back-translation cache (tools/backtranslate.py): one JSON line per unit, {"src": original, "bt": back-translated}."""
+    return cfg_path(cfg, "processed_dir") / "backtranslation" / f"{lang}.jsonl"
 
 
 def run_name(ratio: float, seed: int) -> str:
@@ -170,6 +192,7 @@ class RunPaths:
             "F": self.pseudo / "set_F_fused_top.jsonl",
             **{m: self.pseudo / f"set_{m}_fused_top.jsonl" for m in ALPHA_VARIANTS},
             "E": self.pseudo / "set_E_nli_ensemble.jsonl",
+            **{m: None for m in SSL_METHODS},
             "W": self.pseudo / "set_W_weighted.jsonl",
             "R": self.pseudo / "set_R_random.jsonl",
             "C": self.rl_selected,

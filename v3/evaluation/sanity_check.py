@@ -12,6 +12,7 @@ v2 每跑一轮都要人工翻日志才发现问题（O ≈ A、L 只预测出 3
   S6 B / F / F25 / F75 / F100 的规模等于 round(confidence_top_fraction × 池大小)；E 不超过它
   S7 detector 结果中的伪标签条数与当前的伪标签集合文件一致（集合重建后没有沿用旧结果）
   S8 打开 torch.compile 时，所有层都被编译了（没有因超过重编译上限而退回 eager，README_v3 第 12 节）
+  S9 FIX / FREE 的 mask 比例（只报告；整个训练平均低于 1% 或高于 99% 时警告，README_v3 14.2）
 
 只打印警告并写入 outputs/sanity_check.json，不会中断实验；aggregate_results.py 会把所有警告汇总到
 results/summary.md。
@@ -169,6 +170,14 @@ def check_run(cfg: dict, run_dir: str | Path, late_fraction: float = 0.1, collap
             add("S8", "warn", f"有层没有被编译、退回了 eager（未编译的 frame 数）：{fallback}")
         else:
             add("S8", "ok", f"{len(compiled)} 个 detector 的所有层都已编译")
+
+    # S9 FixMatch / FreeMatch mask rates (report only)
+    ssl_runs = {tag: r["ssl"] for tag, r in results.items() if r.get("ssl")}
+    if ssl_runs:
+        desc = {tag: f"平均 {x.get('mask_rate_mean', 0):.3f}，最后 {x.get('mask_rate_last', 0):.3f}，"
+                     f"伪标签准确率 {x.get('masked_acc_mean') or float('nan'):.3f}" for tag, x in ssl_runs.items()}
+        extreme = {tag: d for tag, d in desc.items() if not 0.01 <= (ssl_runs[tag].get("mask_rate_mean") or 0) <= 0.99}
+        add("S9", "warn" if extreme else "ok", f"mask 比例接近 0 或 1：{extreme}" if extreme else f"mask 比例：{desc}")
 
     warnings = [f"{c['id']} {c['detail']}" for c in checks if c["status"] == "warn"]
     return {"run": paths.root.name, "config_fingerprint": current_fp, "checks": checks, "warnings": warnings}

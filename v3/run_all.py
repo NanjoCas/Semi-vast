@@ -54,9 +54,12 @@ from common.paths import (  # noqa: E402
     MAIN_METHODS,
     NLI_POOL_METHODS,
     NO_PSEUDO_METHODS,
+    SSL_METHODS,
+    SSL_SETTINGS,
     TAPT_METHODS,
     TAPT_SETTINGS,
     RunPaths,
+    backtranslation_path,
     cfg_path,
     detector_tag,
     labeled_split_path,
@@ -154,6 +157,8 @@ def detector_done(out_dir: Path, fp: str, method: str) -> tuple[bool, str]:
         return False, f"已有结果的配置指纹 {recorded} ≠ 当前 {fp}，重跑"
     if method in TAPT_METHODS and tapt_settings_of(result) != tapt_full_settings():
         return False, f"已有结果的 TAPT 设置 {tapt_settings_of(result)} ≠ 当前 {tapt_full_settings()}，重跑"
+    if method in SSL_METHODS and (result.get("ssl") or {}).get("settings") != SSL_SETTINGS:
+        return False, f"已有结果的 SSL 设置 {(result.get('ssl') or {}).get('settings')} ≠ 当前 {SSL_SETTINGS}，重跑"
     return True, f"found {_display(res_path)}"
 
 
@@ -223,6 +228,13 @@ def main() -> None:
             raise SystemExit("AT 需要 TAPT 的设置：先在 seed 42 上做可行性测试（tools/tapt_probe.sh），"
                              "把选定的设置补进 README_v3 13.5 与 common/paths.py 的 TAPT_SETTINGS 并提交，再跑 AT。")
         print(f"[INFO] TAPT         : {tapt_full_settings()}（方法 AT，README_v3 13.5）")
+    if any(m in SSL_METHODS for m in methods):
+        missing = [str(backtranslation_path(cfg, lang)) for lang in SSL_SETTINGS["bt_langs"]
+                   if not backtranslation_path(cfg, lang).exists()]
+        if SSL_SETTINGS.get("bt_variant") is None or missing:
+            raise SystemExit("FIX / FREE 需要回译：先运行 tools/backtranslate.py，按 README_v3 14.4 第 1 项的规则选定回译方式，"
+                             f"补进 14.4 与 common/paths.py 的 SSL_SETTINGS['bt_variant'] 并提交（缺少的缓存：{missing}）。")
+        print(f"[INFO] SSL          : {SSL_SETTINGS}（方法 {[m for m in methods if m in SSL_METHODS]}，README_v3 第 14 节）")
     legacy = [m for m in methods if m in LEGACY_METHODS]
     if legacy:
         print(f"[WARN] {legacy} 仍是 v2 的设计（复合权重用 |LogicScore|、RL 奖励近似常数），尚未按 v3 修订，"

@@ -24,6 +24,8 @@ aggregate_results.py (v3)
 
 第 13 节（README_v3 13.4）的检验单独计算（另一个随机数生成器，已有检验的 CI 不变）：X1、R1–R3、E1、T1 和参考比较；
 另外在 α ∈ {0 (B), 0.25, 0.5 (F), 0.75, 1.0} 中按 5 个 seed 平均的最佳验证 macro-F1 选 α（不看测试集），检验它 − A。
+第 14 节（README_v3 14.5）的检验 U1、U2（F 与 FixMatch / FreeMatch）和参考比较再用一个单独的随机数生成器，
+第 2 节、第 2b 节的数字不变。
 
 只用主训练 seed（训练 seed 等于划分 seed，目录名为方法名本身）的结果做比较；<方法>_t<seed> 的重复训练
 只进入训练噪声表。不同配置指纹的结果混在一起时报错（--allow_mixed 可跳过）。
@@ -78,6 +80,8 @@ METHOD_NAMES = {
     "F75": "F75 融合 teacher，α = 0.75",
     "F100": "F100 只用 NLI 的 teacher（α = 1）",
     "E": "E 多 NLI 集成（3 个模型一致）前 30%",
+    "FIX": "FIX FixMatch（回译一致性训练，阈值 0.95）",
+    "FREE": "FREE FreeMatch（回译一致性训练，自适应阈值）",
     "W": "W 复合权重（v2 设计）",
     "R": "R 随机（v2 设计）",
     "C": "C RL（v2 设计）",
@@ -106,6 +110,14 @@ HYPOTHESES_13 = [
     ("—", "E", "F100", "再加两个 NLI 模型做一致性筛选有没有用（参考）"),
     ("—", "AT", "A", "TAPT 是否有效（参考）"),
     ("—", "F", "AC", "参考"),
+]
+# README_v3 14.5 (written before the runs). Own generator, computed after HYPOTHESES_13.
+HYPOTHESES_14 = [
+    ("U1", "F", "FIX", "F 是否优于标准半监督方法 FixMatch（主要）"),
+    ("U2", "F", "FREE", "F 是否优于标准半监督方法 FreeMatch（主要）"),
+    ("—", "FIX", "A", "FixMatch 在本协议下是否有效（参考）"),
+    ("—", "FREE", "A", "FreeMatch 在本协议下是否有效（参考）"),
+    ("—", "FREE", "FIX", "参考"),
 ]
 NLI_CONTROL = "A⊕NLI"                     # derived, untrained control (see module docstring)
 METHOD_ORDER = ["A", NLI_CONTROL, *[m for m in ALL_METHODS if m != "A"]]
@@ -364,6 +376,9 @@ def main() -> None:
             if (row := contrast(ratio, "Rdev", m, "A", q, rng13)):
                 hyp13_rows.append(row)
 
+    rng14 = np.random.default_rng(14)
+    hyp14_rows = [row for ratio in ratios for hid, a, b, q in HYPOTHESES_14 if (row := contrast(ratio, hid, a, b, q, rng14))]
+
     # ---- training noise (same split, different training seed) ----
     by_key = {(r["ratio"], r["seed"], r["tag"]): r for r in per_seed_rows}
     noise_rows = []
@@ -381,6 +396,7 @@ def main() -> None:
     write_csv(out_dir / "summary.csv", [{k: v for k, v in e.items() if not k.startswith("_")} for e in summary_rows])
     write_csv(out_dir / "hypotheses.csv", hyp_rows)
     write_csv(out_dir / "hypotheses_13.csv", hyp13_rows)
+    write_csv(out_dir / "hypotheses_14.csv", hyp14_rows)
     write_csv(out_dir / "alpha_dev_selection.csv", alpha_rows)
     write_csv(out_dir / "training_noise.csv", noise_rows)
     write_csv(out_dir / "pseudo_quality.csv", quality_rows)
@@ -432,6 +448,18 @@ def main() -> None:
                       "| ratio | 组 | α | seeds | 验证 macro-F1 | 测试 macro-F1 | 选中 |", "|---|---|---|---|---|---|---|"]
             lines += [f"| {r['ratio']:.2f} | {r['method']} | {r['alpha']} | {r['n_seeds']} | {r['dev_macro_f1']:.4f} | "
                       f"{r['test_macro_f1']:.4f} | {'✓' if r.get('chosen_on_dev') else ''} |" for r in alpha_rows]
+        lines.append("")
+    if hyp14_rows:
+        lines += ["## 2c. 第 14 节的检验（标准半监督基线 FixMatch / FreeMatch；README_v3 14.5，判据同上）", "",
+                  "| ratio | 编号 | 比较 | seeds | 逐 seed Δ | 均值 ± 标准差 | Δ>0 的 seed | 95% CI | 结论 | 来源平均：均值（95% CI） | 来源平均结论 |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+        for h in hyp14_rows:
+            lines.append(
+                f"| {h['ratio']:.2f} | {h['id']} | {h['comparison']} | {h['n_seeds']} | {h['per_seed_delta']} | "
+                f"{h['mean_delta']:+.4f} ± {h['std_delta']:.4f} | {h['n_positive']}/{h['n_seeds']} | "
+                f"({h['ci_low']:+.4f}, {h['ci_high']:+.4f}) | **{h['verdict']}** | "
+                f"{h['src_avg_mean_delta']:+.4f} ({h['src_avg_ci_low']:+.4f}, {h['src_avg_ci_high']:+.4f}) | {h['src_avg_verdict']} |"
+            )
         lines.append("")
     lines += ["## 3. 训练噪声（同一划分，换训练 seed）", ""]
     if noise_rows:
