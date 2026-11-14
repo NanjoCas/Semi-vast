@@ -14,8 +14,8 @@
     },
     {
       "id": "S3",
-      "status": "ok",
-      "detail": "没有类别塌缩"
+      "status": "warn",
+      "detail": "类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372']}"
     },
     {
       "id": "S4",
@@ -40,8 +40,10 @@
     {
       "id": "S8",
       "status": "ok",
-      "detail": "9 个 detector 的所有层都已编译"
+      "detail": "10 个 detector 的所有层都已编译"
     }
   ],
-  "warnings": []
+  "warnings": [
+    "S3 类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372']}"
+  ]
 }

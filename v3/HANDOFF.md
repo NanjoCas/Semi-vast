@@ -1,6 +1,6 @@
 # Semi-vast v3 交接文档
 
-> 更新于 2026-11-07 23:30（TAPT 可行性测试完成、设置选定；之前：第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
+> 更新于 2026-11-14 15:00（换卡后 AT 跑完，T1 成立，结果写入 README_v3 13.7.1，第 13 节全部完成；之前（14:20）：AT 两次没跑成，11-07 被关机命令误杀，11-14 GPU 显存有坏区，见第 0 节、第 8 节；之前（2026-11-07 23:30）：TAPT 可行性测试完成、设置选定；之前：第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
 
 ## 0. 现状
 
@@ -33,8 +33,19 @@
   - **E1 不成立**：F − E = −0.001，2/5。均值相同（0.564 / 0.565），E 的跨 seed 标准差 0.034，F 为 0.009。E − F100 = +0.017 成立。
   - 机制（事后分析）：只用 NLI 的 teacher 几乎不给 SUPPORTS（F100 集合中 7–8 条，E 中约 85 条，F 中 149–258 条，池中金标签占 45%），detector 随之少预测 SUPPORTS；seed 45 最明显。
   - 新增 2 条 S2 警告（F25 在 s43 / s45 最佳步靠后），对 R1 是保守的。
-  - **TAPT（README_v3 13.5、13.5.1）**：已实现（`training/tapt.py`；AT 接入 `train_detector.py`、`run_all.py`、`common/paths.py`，设置写在 `TAPT_SETTINGS`，不进配置，指纹不变）。冒烟测试：流程本身不改变结果（对照 0.5305 vs A 0.5252）；但学习率 3e-5 训练 1 个 epoch 后验证 F1 跌到 0.434（A − 0.091），MLM 很快破坏 NLI 能力。**可行性测试**：第一轮（18:55 – 20:35，`tools/tapt_probe.sh`，seed 42，12 个候选，只看验证集，日志 `logs/tapt_probe.log`）全部低于 A，最好的是 3e-6、1 个 epoch（0.5203 vs A 0.5252）；学习率 3e-5 的验证 F1 在第 10 个 epoch 回升，触发事先写定的补跑条件。**补跑已完成**（20:36 – 23:15，3e-5、100 个 epoch，日志 `logs/tapt_probe_e100.log`）：第 20 个 epoch 之后验证 F1 停在 0.46–0.47，全部比 A 低 0.05 以上。17 个候选按规则**选定 3e-6、遮盖 15%、1 个 epoch**（0.5203），已填进 `TAPT_SETTINGS`、补进 README_v3 13.5.1。下一步：`run_ext_fc.sh` 设 `METHODS=AT` 跑 5 个 seed（日志 `logs/at_fc.log`，约 25 分钟），然后看 `results_fc/summary.md` 第 2b 节的 T1（F − AT），写进 README_v3 13.7。
-- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。
+  - **TAPT（README_v3 13.5、13.5.1）**：已实现（`training/tapt.py`；AT 接入 `train_detector.py`、`run_all.py`、`common/paths.py`，设置写在 `TAPT_SETTINGS`，不进配置，指纹不变）。冒烟测试：流程本身不改变结果（对照 0.5305 vs A 0.5252）；但学习率 3e-5 训练 1 个 epoch 后验证 F1 跌到 0.434（A − 0.091），MLM 很快破坏 NLI 能力。**可行性测试**：第一轮（18:55 – 20:35，`tools/tapt_probe.sh`，seed 42，12 个候选，只看验证集，日志 `logs/tapt_probe.log`）全部低于 A，最好的是 3e-6、1 个 epoch（0.5203 vs A 0.5252）；学习率 3e-5 的验证 F1 在第 10 个 epoch 回升，触发事先写定的补跑条件。**补跑已完成**（20:36 – 23:15，3e-5、100 个 epoch，日志 `logs/tapt_probe_e100.log`）：第 20 个 epoch 之后验证 F1 停在 0.46–0.47，全部比 A 低 0.05 以上。17 个候选按规则**选定 3e-6、遮盖 15%、1 个 epoch**（0.5203），已填进 `TAPT_SETTINGS`、补进 README_v3 13.5.1。
+  - **AT 已完成（2026-11-14 14:15 – 14:47，换卡后，日志 `logs/at_fc.log`；结果与解读见 README_v3 13.7.1）**：
+    - **T1 F − AT = +0.075，CI (+0.055, +0.099)，5/5，成立**；来源平均 +0.092。
+    - AT 0.489 ± 0.019，比 A 低 0.022（1/5，CI (−0.051, +0.001)，不显著；来源平均 −0.037 显著更差）：从 NLI 模型出发的 TAPT 没有帮助，主要损失在 REFUTES（F1 0.433 → 0.385）。
+    - 新增 1 条 S3 警告（s44 的 AT 只预测 152 / 372 条 REFUTES），去掉这个 seed，T1 仍成立。T1 加入后，`summary.md` 第 2b 节排在它后面的参考比较 CI 在第三位小数上变动，结论不变（README_v3 13.7.1 末尾）。
+    - **第 13 节的 6 项主要检验全部完成：X1、R1、R2、T1 成立；R3、E1 不成立。**
+  - **AT 之前两次没跑成，都没有产生结果，失败与代码和设置无关**：
+    - 2026-11-07 23:26 启动，23:28 在 seed 42 的 TAPT（epoch 1 第 81 / 120 步）被关机：等待任务结束再关机的命令是在终端里临时写的，`pgrep` 返回了两个 PID，变量里带换行，判断进程是否存在时失效，于是当场关机（日志 `logs/at_fc_killed.log`、`logs/at_fc_killed_shutdown.log`）。
+    - 2026-11-14 13:51 重跑，seed 42 的 TAPT 在只训头的阶段结束后、全参数训练的第一步报 `CUDA error: device-side assert`（DeBERTa 相对位置注意力的 `torch.gather` 下标越界，日志 `logs/at_fc_badgpu.log`）。只训头阶段的 loss 与 11-07 的可行性测试逐位相同（train 7.4784、dev 6.8662），代码、库、驱动（590.44.01）都没变。排查结论：**这张 GPU 的显存有坏区**。`tools/gpu_memtest.py` 把 88 GiB 写满已知数值再读回，第 15–24 个 GiB 共约 190 万个 int64 读回的值不对，3 次结果一致；ECC 是关闭的，所以不报错。全参数训练时显存用到了坏区，DeBERTa 共用的相对位置下标（经 expand 读取）读回乱码，gather 越界；只训头时显存用得少，所以没事。同样的 gather、bmm 在空 GPU 上单独测试结果正确。
+    - **已有结果不受影响的依据**：11-07 的可行性测试用完全相同的代码跑了 17 次全参数 TAPT 都没出错，而现在第一步就稳定复现；全量实验和第 13 节的 detector 显存峰值 69.4GB，必然用到 15–25 GiB 区域，如果那时显存就有坏区，也会这样崩溃。所以坏区是 11-14 这次开机才有的（分到了另一张卡，或者原来的卡坏了）。没有记录过 GPU 的 UUID，无法直接比对；今天这张卡是 `GPU-a672ea40-00a5-24d1-8270-1a14080c690c`（PCI `A8:00.0`）。
+    - `runs_fc` 里没有留下不完整的 TAPT 文件（`checkpoints/tapt` 不存在），换卡后直接重跑即可。
+  - **换卡**（2026-11-14）：新卡 `GPU-d0ece34f-8412-512a-d613-0d8e79eb4a5e`（PCI `C8:00.0`，驱动同为 590.44.01），`tools/gpu_memtest.py` 通过；seed 42 的 TAPT 与 11-07 的可行性测试一致（验证集 MLM loss 6.149 vs 6.150）。下一步见第 6 节（第 1–4 项已全部完成）。
+- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。之后的提交 `50e479f`、`6043e9b`（第 13 节的实现与结果）已推送；**`390be69`（TAPT 与可行性测试）还没有推送**（2026-11-14 核对，本地领先远程 1 个提交）。2026-11-14 的改动（`tools/gpu_memtest.py`、AT 的结果、`results_fc/summary.md`、README_v3 13.7.1、HANDOFF、`../history.md`）还没有提交。
 
 ## 1. 项目与环境
 
@@ -131,6 +142,9 @@ grep -E "STEP|DONE|epoch [0-9]+/|Training complete" logs/tapt_probe.log | tail
 setsid nohup bash tools/tapt_probe.sh > logs/tapt_probe.log 2>&1 < /dev/null &
 python tools/tapt_probe_report.py --run_dir runs_fc/r0.10_s42      # -> runs_fc/r0.10_s42/outputs/tapt_probe/report.md
 
+# GPU 显存自检（换卡或开机后、跑实验之前；约 1 分钟，退出码 0 才算通过）
+python tools/gpu_memtest.py
+
 # 汇总与配对比较（只读结果，几十秒）
 python run_all.py --config configs/config_fc.yaml --aggregate_only   # -> results_fc/summary.md
 python evaluation/compare_runs.py --ratio 0.1                        # -> results_fc/compare_runs.md
@@ -148,7 +162,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 
 ## 6. 下一步（按优先级；改代码前先确认没有任务在跑）
 
-第 1–4 项的设计与事先确定的检验见 README_v3 第 13 节（2026-11-07）。第 1、2、4 项已完成（2026-11-07，结果见 README_v3 13.7）；**现在要做的是第 3 项 TAPT**。
+第 1–4 项的设计与事先确定的检验见 README_v3 第 13 节（2026-11-07）。第 1、2、4 项已完成（2026-11-07，结果见 README_v3 13.7）；第 3 项也已完成（2026-11-14，T1 成立，README_v3 13.7.1）。**第 1–4 项全部完成**；接下来是第 5 项起的建议项，做哪些需要项目负责人决定。
 
 下面的实验都和 `runs_fc` 的 A / F 比较，所以都用 `config_fc.yaml` 的训练协议，ratio 0.1、seed 42–46。全量实验表明 F 相对 B 的优势只在 ratio 0.1 成立（README_v3 12.6），所以这些实验都放在 ratio 0.1 上做，不需要在 0.25 / 0.5 上重复。
 
@@ -156,7 +170,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 |---|---|---|---|---|
 | ✅ 1 必做 | 只看 claim 的基线（已完成：方法 AC，X1 成立，README_v3 13.7） | 新方法（例如 `A_claim`）：detector 训练和测试都只输入 claim，其余与 A 相同；要改 Dataset、方法列表与 `common/paths.py` | 约 20 分钟（A 每个约 3.3 分钟） | Schuster 2019；Usmanova 2026。评审一定会问 |
 | ✅ 2 必做 | α 敏感性（已完成：F25 / F75 / F100，R1 / R2 成立、R3 不成立；没有用单独的配置，见 README_v3 13.1） | α = 0 就是 B，α = 0.5 已有；补 α = 0.25、0.75、1.0（1.0 = 只用 NLI 的 teacher）。`teacher.nli_fusion_alpha` 在指纹里，每个 α 要单独的配置和 runs 目录，像 `run_main_fc.sh` 一样沿用 `runs_f` 的伪标签池 | 约 2.3 小时（3 × 5 × 9 分钟） | README_v3 10.9 限制 2：α 是看过金标签后定的 |
-| **3 必做（下一步）** | TAPT 外部基线（方法 AT，检验 T1；设计已定在 README_v3 13.5：从 `cross-encoder/nli-deberta-v3-large` 起、新初始化 MLM 头、每个 seed 只用自己的无标签池、不用 39 万篇摘要） | 在无标签池（可加上 ClimateCheck 的 39 万篇摘要）上继续预训练 encoder，再按 A 的设置微调。**注意**：DeBERTa-v3 用 RTD 预训练，官方权重没有 MLM 头，要新初始化 MLM 头或改用 RTD 目标，先做小规模可行性验证 | 预训练时间待测，微调约 20 分钟 | Shi 2023；Gururangan 2020 |
+| ✅ 3 必做 | TAPT 外部基线（已完成：方法 AT，T1 成立，AT − A = −0.022 不显著，README_v3 13.7.1；设计已定在 README_v3 13.5：从 `cross-encoder/nli-deberta-v3-large` 起、新初始化 MLM 头、每个 seed 只用自己的无标签池、不用 39 万篇摘要） | 在无标签池（可加上 ClimateCheck 的 39 万篇摘要）上继续预训练 encoder，再按 A 的设置微调。**注意**：DeBERTa-v3 用 RTD 预训练，官方权重没有 MLM 头，要新初始化 MLM 头或改用 RTD 目标，先做小规模可行性验证 | 预训练时间待测，微调约 20 分钟 | Shi 2023；Gururangan 2020 |
 | ✅ 4 建议 | 多 NLI 模型集成 + 拒识（已完成：方法 E，E1 不成立，README_v3 13.7） | 2–3 个现成 NLI 模型零样本标注无标签池，一致才保留，作为新方法与 F 比较 | 低：推理加选样规则，约 1 小时 | Folino & Pontieri 2026（最接近的工作） |
 | 5 建议 | 泛化测试（HealthFC） | ① 转换 HealthFC，核对标签能否映射到三分类、证据格式（不占 GPU）；② 在单独目录重训 ratio 0.1 的 A、F 并保存权重（`run_all.py --keep_checkpoints`，10 个模型约 17GB，数据盘剩约 46GB）；③ 写一个"加载保存的权重、在任意测试集上评估"的脚本 | 约 1 小时 GPU | 回应"测试集被 ClimateCheck 主导" |
 | 6 建议 | 更低的标注比例（ratio 0.05） | 加到 `config_fc.yaml` 的 `experiment.label_ratios`（不影响指纹），A / B / F / O × seed 42–46，从 SSL 划分和 extractor 开始 | 约 3 小时（按 ratio 0.25 的耗时估计） | 12.6：F 的贡献随标注减少而增大，补一个更低的点能支撑"低资源"的定位；需要项目负责人决定，且要在跑之前写定判据 |
@@ -169,7 +183,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 - 论文定位：建议写成"证据感知的逻辑 teacher 用于伪标签选择"，RL 作为负面结果或放进附录（与开题报告的差异要确认）。全量实验后，建议主要结论限定在低标注比例（ratio 0.1），ratio 0.25 / 0.5 作为"teacher 变强后融合不再有额外作用"的分析（README_v3 12.6）。
 - ~~是否补 ratio 0.05~~：2026-11-07 决定不补。
 - 外部基线的范围：2026-11-07 决定做第 6 节 1–4 项（README_v3 第 13 节）；7（标准半监督基线）待定。
-- R3、E1 不成立之后的论文定位（2026-11-07 新增）：方法 F 不再能声称优于只用 NLI 的 teacher 或多 NLI 集成。建议把贡献写成"证据感知的融合 teacher 在低标注比例下稳定有效、对 α 不敏感"，与 E 的比较如实报告为"均值相当、F 跨 seed 更稳定、类别覆盖更完整"（描述性，README_v3 13.7 第 5 条）。是否另加一个"按类别配额选样"的 E 变体来检验这个机制，需要项目负责人决定，且要在跑之前写定判据。
+- R3、E1 不成立之后的论文定位（2026-11-07 新增）：方法 F 不再能声称优于只用 NLI 的 teacher 或多 NLI 集成。建议把贡献写成"证据感知的融合 teacher 在低标注比例下稳定有效、对 α 不敏感"，与 E 的比较如实报告为"均值相当、F 跨 seed 更稳定、类别覆盖更完整"（描述性，README_v3 13.7 第 5 条）。是否另加一个"按类别配额选样"的 E 变体来检验这个机制，需要项目负责人决定，且要在跑之前写定判据。2026-11-14：T1 成立，可以在贡献里加上"优于 TAPT"（限定为 NLI 初始化的设置，README_v3 13.7.1 第 4 条）。
 - 泛化测试集：是否用 HealthFC（健康领域，标签映射待核对）。
 - α 是否按来源分别设定：会多一个超参数，选择规则要事先写定，避免在测试集上挑。
 - Climate-FEVER 的 DISPUTED 处理（目前丢弃）。
@@ -185,6 +199,8 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 - **改代码前确认没有任务在跑**：每个 detector 都是新进程，启动时重新读代码；串联脚本运行期间改 `training/`、`models/`、`common/` 会影响后面还没跑的 run。
 - torch.compile：dynamo 默认每段代码最多 8 个编译版本，超出的部分静默退回 eager；`models/encoder_runtime.py` 已调到 64，结果里的 `uncompiled_frames` 应为 0，S8 会检查。每个 detector 的第一个 40 步窗口含约 15 秒编译。
 - `run_full_fc.sh` 最后会执行 `shutdown`（AutoDL 实例停机、停止计费，数据盘保留）。取消：`pgrep -af "[r]un_full_fc.sh"` 查 PID 后 `kill`，不影响正在训练的 run。
+- **临时写"等任务结束再关机"的命令要小心**：`pgrep -f` 可能返回多个 PID（包括执行它的 shell），整个变量传给 `kill -0` 会失效，被当成任务已结束而立刻关机（2026-11-07 的 AT 就是这样被关掉的）。用 `while pgrep -f "[r]un_ext_fc.sh" > /dev/null; do sleep 60; done; shutdown`，或者只等一个确定的 PID。
+- **GPU 显存可能有坏区而不报错**：RTX PRO 6000 的 ECC 默认关闭，坏区只会悄悄改写数据。2026-11-14 分到的 `GPU-a672ea40-…`（PCI `A8:00.0`）在第 15–24 个 GiB 有坏区（换成 `GPU-d0ece34f-…` 后自检通过），表现为 DeBERTa 全参数训练时 `torch.gather` 报 device-side assert（下标越界），不求梯度、显存用得少时一切正常。换卡或开机后先跑 `python tools/gpu_memtest.py`；遇到无法解释的 CUDA assert，也先跑它。
 - detector 的权重默认不保存（`cleanup_checkpoints: true`，最佳权重只在内存里）。全部保存约 100GB，数据盘放不下；要在新测试集上评估时只保存关键模型（第 6 节第 5 项）。
 - 服务器可以访问 huggingface.co 和 arxiv.org（curl 可用）；模型缓存在 `../model_cache`。
 - 主机负载高时（load average 25–33）每步耗时会翻倍，checkpoint 写盘也会变慢；v3 已不再反复写盘。

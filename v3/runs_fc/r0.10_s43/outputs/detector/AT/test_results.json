@@ -1,0 +1,62 @@
+{
+  "run": "r0.10_s43",
+  "method": "AT",
+  "tag": "AT",
+  "seed": 43,
+  "train_seed": 43,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "/root/autodl-tmp/Semi-vast/v3/runs_fc/r0.10_s43/checkpoints/tapt/encoder",
+  "frozen_layers": 6,
+  "tapt": {
+    "run": "r0.10_s43",
+    "seed": 43,
+    "start_model": "cross-encoder/nli-deberta-v3-large",
+    "settings": {
+      "lr": 3e-06,
+      "mask_prob": 0.15,
+      "epochs": 1,
+      "batch_size": 32,
+      "head_steps": 200,
+      "head_lr": 0.0001,
+      "warmup_steps": 100,
+      "weight_decay": 0.01,
+      "max_grad_norm": 1.0
+    },
+    "epoch": 1,
+    "full_steps": 120,
+    "pool_size": 3857
+  },
+  "input": "claim+evidence",
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 280,
+  "best_val": {
+    "accuracy": 0.5322793148880105,
+    "macro_f1": 0.5014909488564477,
+    "auc": 0.6883574839791237
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": null,
+  "pseudo_size": 0,
+  "pseudo_label_counts": null,
+  "labeled_size": 432,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    864,
+    199,
+    1380
+  ],
+  "train_minutes": 3.1,
+  "checkpointed_layers": 0,
+  "torch_compile": true,
+  "uncompiled_frames": 0,
+  "gpu_peak_gb": 21.2,
+  "accuracy": 0.52312730249693,
+  "macro_f1": 0.4832128261550233,
+  "auc": 0.6596539419113759
+}

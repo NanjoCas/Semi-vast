@@ -1,0 +1,41 @@
+{
+  "run": "r0.10_s43",
+  "seed": 43,
+  "start_model": "cross-encoder/nli-deberta-v3-large",
+  "settings": {
+    "lr": 3e-06,
+    "mask_prob": 0.15,
+    "epochs": 1,
+    "batch_size": 32,
+    "head_steps": 200,
+    "head_lr": 0.0001,
+    "warmup_steps": 100,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0
+  },
+  "pool_size": 3857,
+  "history": [
+    {
+      "phase": "start",
+      "epoch": 0,
+      "step": 0,
+      "dev_mlm_loss": 12.394010281844638
+    },
+    {
+      "phase": "head",
+      "epoch": 0,
+      "step": 200,
+      "train_mlm_loss": 7.470516107082367,
+      "dev_mlm_loss": 6.874620218961365
+    },
+    {
+      "phase": "full",
+      "epoch": 1,
+      "step": 120,
+      "lr": 3e-06,
+      "train_mlm_loss": 6.620972653230031,
+      "dev_mlm_loss": 6.158750272863114,
+      "minutes": 2.4
+    }
+  ]
+}
