@@ -1,0 +1,39 @@
+{
+  "run": "r0.10_s42",
+  "method": "FIX",
+  "tag": "FIX",
+  "seed": 42,
+  "train_seed": 42,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "tapt": null,
+  "ssl": {
+    "method": "fixmatch",
+    "settings": {
+      "p_cutoff": 0.95,
+      "ema_p": 0.999,
+      "ent_loss_ratio": 0.001,
+      "bt_langs": [
+        "de",
+        "ru"
+      ],
+      "bt_variant": "V1"
+    },
+    "pool_size": 3853,
+    "mask_rate_mean": 0.29374999999999996,
+    "mask_rate_last": 0.6734375,
+    "masked_acc_mean": 0.6162070939798882,
+    "final_state": {
+      "threshold": 0.95
+    }
+  },
+  "planned_steps": 640,
+  "best_step": 440,
+  "best_val": {
+    "accuracy": 0.61133069828722,
+    "macro_f1": 0.5577899864210655,
+    "auc": 0.7054868896271748
+  },
+  "train_minutes": 11.0,
+  "uncompiled_frames": 0
+}

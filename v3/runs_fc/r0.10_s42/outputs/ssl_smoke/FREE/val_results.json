@@ -1,0 +1,49 @@
+{
+  "run": "r0.10_s42",
+  "method": "FREE",
+  "tag": "FREE",
+  "seed": 42,
+  "train_seed": 42,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "tapt": null,
+  "ssl": {
+    "method": "freematch",
+    "settings": {
+      "p_cutoff": 0.95,
+      "ema_p": 0.999,
+      "ent_loss_ratio": 0.001,
+      "bt_langs": [
+        "de",
+        "ru"
+      ],
+      "bt_variant": "V1"
+    },
+    "pool_size": 3853,
+    "mask_rate_mean": 0.9966471354166666,
+    "mask_rate_last": 0.9854166666666667,
+    "masked_acc_mean": 0.4414835904304724,
+    "final_state": {
+      "threshold": 0.5406049489974976,
+      "p_model": [
+        0.3972,
+        0.2541,
+        0.3487
+      ],
+      "label_hist": [
+        0.3702,
+        0.2818,
+        0.348
+      ]
+    }
+  },
+  "planned_steps": 640,
+  "best_step": 320,
+  "best_val": {
+    "accuracy": 0.5783926218708827,
+    "macro_f1": 0.5294160596937906,
+    "auc": 0.7108376854873614
+  },
+  "train_minutes": 11.0,
+  "uncompiled_frames": 0
+}

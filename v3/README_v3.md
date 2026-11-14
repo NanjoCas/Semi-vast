@@ -1141,6 +1141,14 @@ AT 逐 seed 的预测分布差别很大：SUPPORTS 预测 864–1537 条，REFUT
 - **第 6 项**：`run_all.py --dry_run --methods FIX,FREE` 只执行 10 个 detector、自动检查和汇总，不训练 extractor、不重建伪标签集合。
 - 另外核对：改动后的 `aggregate_results.py` 与 `sanity_check.py` 处理已有结果，`summary.md` 只有生成时间不同，`sanity_check.json` 逐字节相同。
 
+**冒烟测试（第 3、5 项；2026-11-14 15:28 – 15:50，seed 42，只看验证集，日志 `logs/ssl_smoke.log`，结果 `runs_fc/r0.10_s42/outputs/ssl_smoke/`；写于正式运行之前）**
+
+- 第 3 项：日志中解码的第一条无标签样本，弱增强是原文（"Interesting fact: The greenhouse effect, which is directly observed, is consistent with the 2nd law of thermodynamics…"），强增强是回译（"Interesting fact: The directly observed greenhouse effect corresponds to the 2nd law of thermodynamics…"）。
+- 两个方法都跑完 640 步，每个 11.0 分钟（F 约 8.5 分钟；多出的是弱增强那一次前向），`uncompiled_frames` 为 0，显存（nvidia-smi）约 72 GB。
+- FIX：mask 比例从 0 开始，第 160 步才开始有样本超过 0.95（0.3%），最后一个窗口 0.67，全程平均 0.29；进入 mask 的伪标签准确率平均 0.62。最佳验证 macro-F1 0.558（第 440 步；同一 seed 的 A 为 0.525，F 为 0.609）。
+- FREE：阈值从 1/3 升到 0.54，mask 比例全程 0.99–1.00，即 14.2 预料的"阈值一直偏低"；进入 mask 的伪标签准确率前 80 步只有 0.16–0.18（分类头刚初始化，预测接近随机），之后升到 0.5–0.57，全程平均 0.44。最佳验证 macro-F1 0.529（第 320 步）。
+- 按第 5 项的约定，冒烟测试的结果不用于修改任何设置，正式运行沿用 14.2 的设置；seed 42 在正式运行中重新训练，冒烟测试的结果不进汇总。
+
 ### 14.5 事先确定的检验
 
 判据与 10.8、13.4 相同：5 个 seed 的分层 bootstrap（2000 次）95% CI 下界 > 0，且至少 4 / 5 个 seed 的 Δ > 0，才算"成立"。主指标为整体测试 macro-F1；来源平均与分来源结果只报告，不作为判据。汇总时用单独的随机数生成器，已有检验（第 2 节、第 2b 节）的数字不变。
