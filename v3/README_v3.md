@@ -1243,3 +1243,19 @@ AT 逐 seed 的预测分布差别很大：SUPPORTS 预测 864–1537 条，REFUT
 - 可以写：在相同的协议与训练预算下，F 优于标准半监督方法 FixMatch 与 FreeMatch（U1、U2），也优于 TAPT（T1）；只用模型自身预测的自训练（B）与一致性训练（FIX、FREE）都没有超过强的纯监督基线 A，半监督的收益来自外部的 NLI 信号。
 - 必须说明：FIX / FREE 使用本项目的 640 步预算与 λ 设置，没有调参（解读第 5 条）；FreeMatch 在短预算下阈值偏低（解读第 4 条）。
 - 第 13、14 节的总结：X1、R1、R2、T1、U1、U2 成立，R3、E1 不成立。F 的贡献可以写成"外部 NLI 信号与 extractor 融合的 teacher，在低标注比例下稳定优于纯监督、只用 extractor 的伪标签、TAPT 与标准半监督方法，对 α 不敏感"；与只用 NLI 的 teacher、多 NLI 集成相比，均值相当、更稳定（13.7 第 3–5 条）。
+
+## 15. 多重比较校正、论文表格与画图数据（2026-11-14，论文定位经导师通过之后）
+
+**多重比较校正**（`evaluation/multiple_comparisons.py`，结果 `results_fc/multiple_comparisons.md`）：之前的检验都没有校正（13.4、14.5）。检验族取事先登记为主要或次要的 17 项（F1–F3 × 3 个 ratio，X1、R1–R3、E1、T1、U1、U2），每项用分层 bootstrap 10000 次（单独的随机数生成器）算双侧 p，做 Holm 校正；校正后 p < 0.05 且至少 4/5 个 seed 同向才算成立。
+
+- **ratio 0.1 的 14 项检验，校正前后结论完全相同**：成立的 F1、F2、F3、X1、R1、R2、T1、U1、U2 校正后 p 都是 0.0017（bootstrap 没有一次落到另一侧，p 记为 < 0.0001，乘以 17）；R3（p 0.060 → 0.239）、E1 仍不成立。
+- **只有 ratio 0.5 的 F1 由成立变为不成立**：F − A = +0.023，p 0.024 → Holm 0.121。论文中写为"50% 标注时 F 相对 A 的提升在多重比较校正后不显著"，与 12.6 节"效果随标注增多而收敛"一致。ratio 0.25 的 F1（+0.031）校正后仍成立。
+
+**论文表格**（`evaluation/paper_tables.py`，数字全部从汇总文件读取）：`results_fc/paper_tables/tables.md`（中文表头，预览）与 `tables.tex`（booktabs，英文表头；服务器上没有 LaTeX，没有编译过）。表 1 主要结果；表 2 全部组相对 A 与相对 F 的差值；表 3 17 项检验与 Holm 校正；表 4 随标注比例的变化；表 5 预测分布与分类别 F1。
+
+**画图数据**（随仓库推送，不含任何 claim / 证据原文）：
+- `results*/*.csv`：汇总、逐 seed 结果、检验、伪标签集合质量（`.gitignore` 的例外规则）；
+- `runs*/<run>/outputs/detector/<tag>/test_predictions.jsonl`：每个 detector 的测试预测（id、金标签、预测、概率；runs / runs_f / runs_fc 共 127 个）；
+- `plot_data/`（`tools/export_plot_data.py` 导出）：`test.jsonl`（测试集的 id、来源、标签、NLI 概率），`runs_fc/<run>/pool.jsonl`（无标签池上 extractor 的预测与置信度、3 个 NLI 模型的概率、金标签、进入了哪些伪标签集合及其标签），`backtranslation_check.json`。
+- 训练曲线（`train_metrics.json`、`detector_training_curves.png`）、伪标签集合统计（`pseudo_label_quality.json`、`baseline_sets_stats.json`）原来就在仓库里。
+- 不推送：数据划分与无标签池原文（`processed/`、`runs*/*/data/`、`runs*/*/pseudo/`）、回译缓存、模型权重、日志。

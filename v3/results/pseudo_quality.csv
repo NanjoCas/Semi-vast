@@ -1,0 +1,2 @@
+run,ratio,seed,pool_acc,set_B_size,set_B_acc,set_B_balanced,auroc_confidence,auroc_neg_entropy,auroc_abs_logic_score,auroc_direction_consistency,auroc_discourse_score,auroc_composite_weight
+r0.10_s42,0.1,42,0.49727485076563716,1156,0.5346020761245674,0.5189301234938078,0.5543736520866588,0.5788247057897896,0.5185541854426976,0.5933992798195346,0.5049504323561713,0.5386611993882454

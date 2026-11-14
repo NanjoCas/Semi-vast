@@ -1,6 +1,6 @@
 # Semi-vast v3 交接文档
 
-> 更新于 2026-11-14 18:00（标准半监督基线 FixMatch / FreeMatch 跑完，U1、U2 成立，结果写入 README_v3 14.7；之前（15:00）：换卡后 AT 跑完，T1 成立，结果写入 README_v3 13.7.1，第 13 节全部完成；之前（14:20）：AT 两次没跑成，11-07 被关机命令误杀，11-14 GPU 显存有坏区，见第 0 节、第 8 节；之前（2026-11-07 23:30）：TAPT 可行性测试完成、设置选定；之前：第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
+> 更新于 2026-11-14 18:30（论文定位经导师通过；多重比较校正、论文表格、不含原文的画图数据，推送到 GitHub，之后改在别的机器上写论文，见 README_v3 第 15 节；之前（18:00）：标准半监督基线 FixMatch / FreeMatch 跑完，U1、U2 成立，结果写入 README_v3 14.7；之前（15:00）：换卡后 AT 跑完，T1 成立，结果写入 README_v3 13.7.1，第 13 节全部完成；之前（14:20）：AT 两次没跑成，11-07 被关机命令误杀，11-14 GPU 显存有坏区，见第 0 节、第 8 节；之前（2026-11-07 23:30）：TAPT 可行性测试完成、设置选定；之前：第 13 节的 AC / F25 / F75 / F100 / E 跑完，结果写入 README_v3 13.7；之前：全量实验完成，结果写入 README_v3 12.4、12.6；2026-11-06 换卡后重新配置训练、改用 torch.compile，见 README_v3 第 11、12 节；之前的内容更新于 2026-10-04 17:30）。本文档加上 `README_v3.md` 就是 v3 的全部上下文；v3 的由来见 `../v2/README_v2.md` 第 9 节，v2 的历史见 `../v2/HANDOFF.md`。v1 → v3 的演变汇总见 `../history.md`（供写论文参考）。
 
 ## 0. 现状
 
@@ -51,7 +51,8 @@
   - FREE 的阈值在 640 步内只升到 0.55，mask 比例全程约 1（事先写明的后果，S9 警告 × 5）；新增 S2（s43 FREE）、S3（s44 FIX / FREE 少预测 NEI）各一类警告，去掉对应 seed 结论不变。
   - **第 13、14 节的 8 项主要检验全部完成：X1、R1、R2、T1、U1、U2 成立；R3、E1 不成立。**
   - USB 源码"下载到本机执行、逐元素比对"被权限设置拦下，改为按公式手算核对（README_v3 14.4 第 4 项）。
-- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。之后的提交 `50e479f`、`6043e9b`（第 13 节的实现与结果）已推送；**`390be69`（TAPT 与可行性测试）还没有推送**（2026-11-14 核对，本地领先远程 1 个提交）。2026-11-14 的改动已提交：`a753e70`（`tools/gpu_memtest.py`）、`5838463`（AT 的结果、README_v3 13.7.1、HANDOFF、`../history.md`）、`f5fb558`（第 14 节的事先方案）、`fd2a4c4`（FIX / FREE 的实现与回译）、`3563897`（冒烟测试），以及 FIX / FREE 的结果。**`390be69` 起的提交还没有推送**。
+- **写论文前的收尾（2026-11-14，README_v3 第 15 节）**：论文定位经导师通过（第 7 节）。多重比较校正（Holm，17 项）：ratio 0.1 的结论全部不变，只有 ratio 0.5 的 F1（F − A = +0.023）校正后不再成立。论文表格在 `results_fc/paper_tables/`（Markdown 与 LaTeX）。画图需要的文件（汇总 CSV、127 个测试预测、`plot_data/` 中不含原文的无标签池与测试集数据）已纳入仓库并推送；**之后在别的机器上拉取仓库写论文，不再在服务器上进行**。
+- git：v3 在分支 **`v3-training-protocol`**（远程 `github.com/NanjoCas/Semi-vast`）。2026-10-05 的两次提交（方向一的代码；试跑与主实验的结果）已推送：2026-11-05 核对，远程分支与本地 `b37b0c6` 相同。**2026-11-07 已提交并推送**（远程与本地 `05511ce` 相同）：换卡与 torch.compile 的代码（`v3: faster training on the 96GB card; torch.compile protocol`），全量实验结果与文档（`v3: full experiment under config_fc`）。有两处有意没有提交：仓库根目录 `configs/config.1epoch.yaml` 是项目负责人自己的改动（v1 文件）；`.github/copilot-instructions.md` 在工作区被删除、来源不明，等项目负责人确认是否有意删除，不是的话用 `git checkout -- .github/copilot-instructions.md` 恢复。服务器现在可以直接推送（deploy key，第 8 节）。之后的提交 `50e479f`、`6043e9b`（第 13 节的实现与结果）已推送；**`390be69`（TAPT 与可行性测试）还没有推送**（2026-11-14 核对，本地领先远程 1 个提交）。2026-11-14 的改动已提交：`a753e70`（`tools/gpu_memtest.py`）、`5838463`（AT 的结果、README_v3 13.7.1、HANDOFF、`../history.md`）、`f5fb558`（第 14 节的事先方案）、`fd2a4c4`（FIX / FREE 的实现与回译）、`3563897`（冒烟测试），以及 FIX / FREE 的结果、多重比较校正与画图数据；**2026-11-14 已全部推送**（推送后用 `git status -sb` 核对）。
 
 ## 1. 项目与环境
 
@@ -154,6 +155,11 @@ python tools/gpu_memtest.py
 # 第 14 节：回译（已缓存的不重新翻译，并重做 14.4 的检查）与 FixMatch / FreeMatch（中断后重跑同一条命令即可续跑）
 python tools/backtranslate.py --config configs/config_fc.yaml --device cuda
 setsid nohup bash run_ssl_fc.sh > logs/ssl_fc.log 2>&1 < /dev/null &
+
+# 多重比较校正、论文表格、画图数据（都只读已有结果；重新汇总之后按这个顺序重跑）
+python evaluation/multiple_comparisons.py --config configs/config_fc.yaml   # -> results_fc/multiple_comparisons.md（约 1 分钟）
+python evaluation/paper_tables.py --config configs/config_fc.yaml           # -> results_fc/paper_tables/
+python tools/export_plot_data.py --config configs/config_fc.yaml            # -> plot_data/
 
 # 汇总与配对比较（只读结果，几十秒）
 python run_all.py --config configs/config_fc.yaml --aggregate_only   # -> results_fc/summary.md

@@ -31,3 +31,10 @@ processed/
 
 # OS noise
 .DS_Store
+
+# Text-free files needed for plots (v3/HANDOFF.md section 4): summary CSVs, every detector's test predictions
+# (id, gold, pred, probs) and the exports of v3/tools/export_plot_data.py. Data splits and pools with claim / evidence
+# text stay out (processed/, runs*/*/data/, runs*/*/pseudo/).
+!v3/results*/*.csv
+!v3/runs*/r*/outputs/detector/*/test_predictions.jsonl
+!v3/plot_data/**

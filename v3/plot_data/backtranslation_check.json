@@ -1,0 +1,74 @@
+{
+  "units": 9810,
+  "langs": {
+    "de": {
+      "translated": 9810,
+      "sentences": 34129,
+      "truncated_forward": 8,
+      "truncated_backward": 0,
+      "output_check": {
+        "empty": 0,
+        "word_ratio_share": 0.9953109072375127,
+        "word_ratio_median": 1.0,
+        "ok": true
+      }
+    },
+    "ru": {
+      "translated": 9810,
+      "sentences": 34129,
+      "truncated_forward": 8,
+      "truncated_backward": 0,
+      "output_check": {
+        "empty": 0,
+        "word_ratio_share": 0.9924566768603466,
+        "word_ratio_median": 1.0130718954248366,
+        "ok": true
+      }
+    }
+  },
+  "label_check": {
+    "n_dev": 759,
+    "n_directional": 230,
+    "orig_macro_f1": 0.4610953528726196,
+    "variants": {
+      "V1": {
+        "de": {
+          "flip_rate": 0.021739130434782608,
+          "agreement": 0.8708827404479579,
+          "macro_f1": 0.4536235489220564
+        },
+        "ru": {
+          "flip_rate": 0.034782608695652174,
+          "agreement": 0.8115942028985508,
+          "macro_f1": 0.4383624192669419
+        }
+      },
+      "V2": {
+        "de": {
+          "flip_rate": 0.017391304347826087,
+          "agreement": 0.9064558629776021,
+          "macro_f1": 0.453909650590462
+        },
+        "ru": {
+          "flip_rate": 0.021739130434782608,
+          "agreement": 0.8945981554677207,
+          "macro_f1": 0.4477225394692644
+        }
+      },
+      "V3": {
+        "de": {
+          "flip_rate": 0.013043478260869565,
+          "agreement": 0.9169960474308301,
+          "macro_f1": 0.45924055358217286
+        },
+        "ru": {
+          "flip_rate": 0.02608695652173913,
+          "agreement": 0.8537549407114624,
+          "macro_f1": 0.4445419859470938
+        }
+      }
+    },
+    "chosen": "V1",
+    "rule": "第一个两种语言方向翻转率都 ≤ 5% 的方式"
+  }
+}
