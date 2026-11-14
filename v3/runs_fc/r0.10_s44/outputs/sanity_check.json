@@ -15,7 +15,7 @@
     {
       "id": "S3",
       "status": "warn",
-      "detail": "类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372']}"
+      "detail": "类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372'], 'FIX': ['NOT_ENOUGH_INFO 463/1088'], 'FREE': ['NOT_ENOUGH_INFO 402/1088']}"
     },
     {
       "id": "S4",
@@ -40,10 +40,16 @@
     {
       "id": "S8",
       "status": "ok",
-      "detail": "10 个 detector 的所有层都已编译"
+      "detail": "12 个 detector 的所有层都已编译"
+    },
+    {
+      "id": "S9",
+      "status": "warn",
+      "detail": "mask 比例接近 0 或 1：{'FREE': '平均 0.996，最后 0.990，伪标签准确率 0.455'}"
     }
   ],
   "warnings": [
-    "S3 类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372']}"
+    "S3 类别预测数低于金标签数的 50%（预测/金标签）：{'AT': ['REFUTES 152/372'], 'FIX': ['NOT_ENOUGH_INFO 463/1088'], 'FREE': ['NOT_ENOUGH_INFO 402/1088']}",
+    "S9 mask 比例接近 0 或 1：{'FREE': '平均 0.996，最后 0.990，伪标签准确率 0.455'}"
   ]
 }

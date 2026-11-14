@@ -1,0 +1,74 @@
+{
+  "run": "r0.10_s46",
+  "method": "FREE",
+  "tag": "FREE",
+  "seed": 46,
+  "train_seed": 46,
+  "config_fingerprint": "df8ea323b54a",
+  "encoder_source": "cross-encoder/nli-deberta-v3-large",
+  "frozen_layers": 6,
+  "tapt": null,
+  "ssl": {
+    "method": "freematch",
+    "settings": {
+      "p_cutoff": 0.95,
+      "ema_p": 0.999,
+      "ent_loss_ratio": 0.001,
+      "bt_langs": [
+        "de",
+        "ru"
+      ],
+      "bt_variant": "V1"
+    },
+    "pool_size": 3880,
+    "mask_rate_mean": 0.9965494791666667,
+    "mask_rate_last": 0.9833333333333333,
+    "masked_acc_mean": 0.5001431790340896,
+    "final_state": {
+      "threshold": 0.5525107383728027,
+      "p_model": [
+        0.4374,
+        0.2426,
+        0.3199
+      ],
+      "label_hist": [
+        0.4834,
+        0.2265,
+        0.29
+      ]
+    }
+  },
+  "input": "claim+evidence",
+  "total_optimizer_steps": 640,
+  "planned_steps": 640,
+  "eval_every": 40,
+  "best_step": 400,
+  "best_val": {
+    "accuracy": 0.4980237154150198,
+    "macro_f1": 0.47780698157315155,
+    "auc": 0.6495191329377855
+  },
+  "skipped_nonfinite": 0,
+  "pseudo_set": null,
+  "pseudo_size": 0,
+  "pseudo_label_counts": null,
+  "labeled_size": 409,
+  "test_gold_counts": [
+    983,
+    372,
+    1088
+  ],
+  "test_pred_counts": [
+    1438,
+    264,
+    741
+  ],
+  "train_minutes": 11.0,
+  "checkpointed_layers": 0,
+  "torch_compile": true,
+  "uncompiled_frames": 0,
+  "gpu_peak_gb": 69.4,
+  "accuracy": 0.48792468276708967,
+  "macro_f1": 0.478155351820166,
+  "auc": 0.6488035017338709
+}

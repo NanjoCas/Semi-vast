@@ -1,7 +1,7 @@
 {
   "config_fingerprint": "df8ea323b54a",
   "config_file": "configs/config_fc.yaml",
-  "updated": "2026-11-14 14:15:08",
+  "updated": "2026-11-14 15:51:29",
   "config": {
     "paths": {
       "raw_climate_fever": "../Data/Climate Fever Dataset/archive/climate-fever.jsonl",
