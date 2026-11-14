@@ -174,7 +174,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 | ✅ 4 建议 | 多 NLI 模型集成 + 拒识（已完成：方法 E，E1 不成立，README_v3 13.7） | 2–3 个现成 NLI 模型零样本标注无标签池，一致才保留，作为新方法与 F 比较 | 低：推理加选样规则，约 1 小时 | Folino & Pontieri 2026（最接近的工作） |
 | 5 建议 | 泛化测试（HealthFC） | ① 转换 HealthFC，核对标签能否映射到三分类、证据格式（不占 GPU）；② 在单独目录重训 ratio 0.1 的 A、F 并保存权重（`run_all.py --keep_checkpoints`，10 个模型约 17GB，数据盘剩约 46GB）；③ 写一个"加载保存的权重、在任意测试集上评估"的脚本 | 约 1 小时 GPU | 回应"测试集被 ClimateCheck 主导" |
 | 6 建议 | 更低的标注比例（ratio 0.05） | 加到 `config_fc.yaml` 的 `experiment.label_ratios`（不影响指纹），A / B / F / O × seed 42–46，从 SSL 划分和 extractor 开始 | 约 3 小时（按 ratio 0.25 的耗时估计） | 12.6：F 的贡献随标注减少而增大，补一个更低的点能支撑"低资源"的定位；需要项目负责人决定，且要在跑之前写定判据 |
-| 7 可选 | 标准半监督基线 | USB 的 FixMatch / FreeMatch（或 MultiMatch），需要回译等文本增强 | 中到高 | USB 2022；Sirbu 2025 |
+| **7 进行中** | 标准半监督基线（2026-11-14 项目负责人决定做：FixMatch 与 FreeMatch，方法 FIX / FREE，检验 U1 / U2；方案写在 README_v3 第 14 节） | USB 的 FixMatch / FreeMatch（或 MultiMatch），需要回译等文本增强 | 中到高 | USB 2022；Sirbu 2025 |
 | 8 可选 | 方法改进 | 不一致的样本降权或 MixUp，而不是丢弃；LLM 作第三个 teacher | 中 | VerifyMatch 2024；LG-CoTrain 2025 |
 | 9 写作 | 相关工作 | 按 `../LITERATURE_REVIEW.md` 组织；补上缺失的引用：ClimateCheck 2025 / 2026、Oliver 2018、Shi 2023、Schuster 2019、UPS、Folino & Pontieri、VerifyMatch、MultiMatch、DecomposeRL、Usmanova 2026 | — | — |
 
@@ -182,7 +182,7 @@ python evaluation/compare_runs.py --ratio 0.1                        # -> result
 
 - 论文定位：建议写成"证据感知的逻辑 teacher 用于伪标签选择"，RL 作为负面结果或放进附录（与开题报告的差异要确认）。全量实验后，建议主要结论限定在低标注比例（ratio 0.1），ratio 0.25 / 0.5 作为"teacher 变强后融合不再有额外作用"的分析（README_v3 12.6）。
 - ~~是否补 ratio 0.05~~：2026-11-07 决定不补。
-- 外部基线的范围：2026-11-07 决定做第 6 节 1–4 项（README_v3 第 13 节）；7（标准半监督基线）待定。
+- 外部基线的范围：2026-11-07 决定做第 6 节 1–4 项（README_v3 第 13 节）；7（标准半监督基线）2026-11-14 决定做 FixMatch 与 FreeMatch（README_v3 第 14 节）。
 - R3、E1 不成立之后的论文定位（2026-11-07 新增）：方法 F 不再能声称优于只用 NLI 的 teacher 或多 NLI 集成。建议把贡献写成"证据感知的融合 teacher 在低标注比例下稳定有效、对 α 不敏感"，与 E 的比较如实报告为"均值相当、F 跨 seed 更稳定、类别覆盖更完整"（描述性，README_v3 13.7 第 5 条）。是否另加一个"按类别配额选样"的 E 变体来检验这个机制，需要项目负责人决定，且要在跑之前写定判据。2026-11-14：T1 成立，可以在贡献里加上"优于 TAPT"（限定为 NLI 初始化的设置，README_v3 13.7.1 第 4 条）。
 - 泛化测试集：是否用 HealthFC（健康领域，标签映射待核对）。
 - α 是否按来源分别设定：会多一个超参数，选择规则要事先写定，避免在测试集上挑。
